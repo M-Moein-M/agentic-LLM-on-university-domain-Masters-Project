@@ -1,3 +1,5 @@
+import json
+import trafilatura
 import os
 import asyncio
 import requests
@@ -188,8 +190,15 @@ async def tavily_search_async(search_queries, max_results: int = 5, topic: str =
                 tavily_async_client.search(
                     query,
                     max_results=max_results,
-                    include_raw_content=include_raw_content,
-                    topic=topic
+                    include_raw_content=False,
+                    include_answer=True,
+                    topic=topic,
+                    country="germany",
+                    include_domains=[
+                        "fau.eu",
+                        "fau.de",
+                        "doc.nhr.fau.de",
+                    ],
                 )
             )
 
@@ -223,63 +232,43 @@ def perplexity_search(search_queries):
                 ]
             }
     """
-
-    headers = {
-        "accept": "application/json",
-        "content-type": "application/json",
-        "Authorization": f"Bearer {os.getenv('PERPLEXITY_API_KEY')}"
-    }
-    
-    search_docs = []
+    INCLUDE_TOP_N_RESULTS = 3
+    MAX_TEXT_LENGTH = 10_000
+    search_docs = list()
+    visited_urls = set()
     for query in search_queries:
+        url = f"http://localhost:8080/search?q={query} -filetype:pdf site:fau.eu OR site:fau.de OR site:doc.nhr.fau.de&format=json&engines=google"
+        payload = {}
+        headers = {}
 
-        payload = {
-            "model": "sonar-pro",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "Search the web and provide factual information with sources."
-                },
-                {
-                    "role": "user",
-                    "content": query
-                }
-            ]
-        }
+
+        response = requests.request("GET", url, headers=headers, data=payload)
         
-        response = requests.post(
-            "https://api.perplexity.ai/chat/completions",
-            headers=headers,
-            json=payload
-        )
         response.raise_for_status()  # Raise exception for bad status codes
-        
+        print("@@@@GOT RESPONSE FROM SEARXNG:", query)
         # Parse the response
         data = response.json()
-        content = data["choices"][0]["message"]["content"]
-        citations = data.get("citations", ["https://perplexity.ai"])
+        data["results"] = [r for r in data["results"] if r["url"] not in visited_urls]
         
-        # Create results list for this query
-        results = []
-        
-        # First citation gets the full content
-        results.append({
-            "title": f"Perplexity Search, Source 1",
-            "url": citations[0],
-            "content": content,
-            "raw_content": content,
-            "score": 1.0  # Adding score to match Tavily format
-        })
-        
-        # Add additional citations without duplicating content
-        for i, citation in enumerate(citations[1:], start=2):
-            results.append({
-                "title": f"Perplexity Search, Source {i}",
-                "url": citation,
-                "content": "See primary source for full content",
-                "raw_content": None,
-                "score": 0.5  # Lower score for secondary sources
-            })
+        results = list()
+        i = 0
+        for i, res in enumerate(data["results"]):
+            url = res["url"]
+            print("@@@@SEARXNG URL: ", url)
+            if url in visited_urls:
+                continue
+            visited_urls.add(url)
+            downloaded = trafilatura.fetch_url(url)
+            if downloaded:
+                text = trafilatura.extract(
+                    downloaded,
+                    output_format="markdown")
+                res["raw_content"] = text
+                if len(text) > MAX_TEXT_LENGTH:
+                    continue
+                results.append(res)
+            if len(results) >= INCLUDE_TOP_N_RESULTS:
+                break
         
         # Format response to match Tavily structure
         search_docs.append({
@@ -289,6 +278,10 @@ def perplexity_search(search_queries):
             "images": [],
             "results": results
         })
+
+    with open("pereplexity_search.md", "w") as f:
+        print(json.dumps(search_docs, indent=4), file=f)
+        print("@@@@SEARCH DOC WRITTEN TO FILE")
     
     return search_docs
 
@@ -1360,6 +1353,7 @@ async def select_and_execute_search(search_api: str, query_list: list[str], para
     Raises:
         ValueError: If an unsupported search API is specified
     """
+    search_api = "perplexity"
     if search_api == "tavily":
         # Tavily search tool used with both workflow and agent 
         return await tavily_search.ainvoke({'queries': query_list}, **params_to_pass)
@@ -1413,7 +1407,7 @@ def _create_custom_chat_model(model_name: str) -> ChatOpenAI:
         )
 
     return ChatOpenAI(
-        base_url="http://10.28.53.147:6000/v1", #base_url.rstrip("/"),
+        base_url="http://10.28.53.143:6000/v1", #base_url.rstrip("/"),
         api_key="xFhGltj52Gn",  # can be dummy
         model_name="/anvme/workspace/unrz103h-helma/base_models/full",
         temperature=0,
@@ -1440,7 +1434,7 @@ def _create_custom_chat_model(model_name: str, **common_kwargs) -> ChatOpenAI:
     #     **common_kwargs,
     # )
     return ChatOpenAI(
-        base_url="http://10.28.53.147:6000/v1",#base_url.rstrip("/"),
+        base_url="http://10.28.53.143:6000/v1",#base_url.rstrip("/"),
         api_key="xFhGltj52Gn",  # can be dummy
         model_name="/anvme/workspace/unrz103h-helma/base_models/full",
         temperature=0,

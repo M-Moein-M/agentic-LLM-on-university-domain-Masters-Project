@@ -9,7 +9,7 @@ report_planner_query_writer_instructions="""You are performing research for a re
 </Report organization>
 
 <Task>
-Your goal is to generate {number_of_queries} web search queries that will help gather information for planning the report sections. 
+Your goal is to generate {number_of_queries} web search queries that will help gather information to address the topic. 
 
 The queries should:
 
@@ -17,6 +17,10 @@ The queries should:
 2. Help satisfy the requirements specified in the report organization
 
 Make the queries specific enough to find high-quality, relevant sources while covering the breadth needed for the report structure.
+The search will be limited on resources from FAU (Friedrich-Alexander-Universität Erlangen-Nürnberg). Focus on balancing breadth and depth of queries and do not mention references to FAU.
+The topic can be a question or query from the user. Your task is to find the best SERP queries to include the answer. 
+Feel free to generate less queries if the topic is specific enough.
+
 </Task>
 
 <Format>
@@ -61,7 +65,6 @@ Each section should have the fields:
 - Content - The content of the section, which you will leave blank for now.
 
 Integration guidelines:
-- Include examples and implementation details within main topic sections, not as separate sections
 - Ensure each section has a distinct purpose with no content overlap
 - Combine related concepts rather than separating them
 - CRITICAL: Every section MUST be directly relevant to the main topic
@@ -124,6 +127,7 @@ section_writer_instructions = """Write one section of a research report.
 - Strict 150-200 word limit
 - Use simple, clear language
 - Use short paragraphs (2-3 sentences max)
+- Use structured formatting like tables and bullet points for maximum readability.
 - Use ## for section title (Markdown format)
 </Writing Guidelines>
 
@@ -225,7 +229,6 @@ For Introduction:
 - Focus on the core motivation for the report in 1-2 paragraphs
 - Preview the specific content covered in the main body sections (mention key examples, case studies, or findings)
 - Use a clear narrative arc to introduce the report
-- Include NO structural elements (no lists or tables)
 - No sources section needed
 
 For Conclusion/Summary:

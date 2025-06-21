@@ -90,10 +90,9 @@ async def generate_report_plan(state: ReportState, config: RunnableConfig):
     system_instructions_query = report_planner_query_writer_instructions.format(
         topic=topic,
         report_organization=report_structure,
-        number_of_queries=number_of_queries,
+        number_of_queries= 4, #number_of_queries,
         today=get_today_str()
     )
-
     
 
     # Generate queries  
@@ -174,7 +173,7 @@ def human_feedback(state: ReportState, config: RunnableConfig) -> Command[Litera
                         \n\n{sections_str}\n
                         \nDoes the report plan meet your needs?\nPass 'true' to approve the report plan.\nOr, provide feedback to regenerate the report plan:"""
     
-    feedback = interrupt(interrupt_message)
+    # feedback = interrupt(interrupt_message)
 
     # If the user approves the report plan, kick off section writing
     # if isinstance(feedback, bool) and feedback is True:
@@ -415,6 +414,10 @@ def gather_completed_sections(state: ReportState):
 
     # Format completed section to str to use as context for final sections
     completed_report_sections = format_sections(completed_sections)
+
+    with open("mo_completed_report_sections.md", "w") as f:
+        f.write(completed_report_sections)
+
 
     return {"report_sections_from_research": completed_report_sections}
 
