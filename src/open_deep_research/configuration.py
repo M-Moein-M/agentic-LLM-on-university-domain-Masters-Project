@@ -79,8 +79,8 @@ class MultiAgentConfiguration:
     
     # Multi-agent specific configuration
     number_of_queries: int = 2 # Number of search queries to generate per section
-    supervisor_model: str = "anthropic:claude-3-7-sonnet-latest"
-    researcher_model: str = "anthropic:claude-3-7-sonnet-latest"
+    supervisor_model: str = os.getenv("SUPERVISOR_MODEL", "openai:gpt-4.1-mini")
+    researcher_model: str = os.getenv("RESEARCHER_MODEL", "openai:gpt-4.1-mini")
     ask_for_clarification: bool = False # Whether to ask for clarification from the user
     # MCP server configuration
     mcp_server_config: Optional[Dict[str, Any]] = None

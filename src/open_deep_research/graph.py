@@ -1,6 +1,7 @@
 from typing import Literal
 
-from langchain.chat_models import init_chat_model
+# from langchain.chat_models import init_chat_model
+from open_deep_research.utils import init_chat_model
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
@@ -93,10 +94,11 @@ async def generate_report_plan(state: ReportState, config: RunnableConfig):
         today=get_today_str()
     )
 
+    
+
     # Generate queries  
     results = await structured_llm.ainvoke([SystemMessage(content=system_instructions_query),
                                      HumanMessage(content="Generate search queries that will help with planning the sections of the report.")])
-
     # Web search
     query_list = [query.search_query for query in results.queries]
 
@@ -175,7 +177,8 @@ def human_feedback(state: ReportState, config: RunnableConfig) -> Command[Litera
     feedback = interrupt(interrupt_message)
 
     # If the user approves the report plan, kick off section writing
-    if isinstance(feedback, bool) and feedback is True:
+    # if isinstance(feedback, bool) and feedback is True:
+    if True: # skip approval
         # Treat this as approve and kick off section writing
         return Command(goto=[
             Send("build_section_with_web_research", {"topic": topic, "section": s, "search_iterations": 0}) 
@@ -282,6 +285,7 @@ async def write_section(state: SectionState, config: RunnableConfig) -> Command[
     Returns:
         Command to either complete section or do more research
     """
+
 
     # Get state 
     topic = state["topic"]

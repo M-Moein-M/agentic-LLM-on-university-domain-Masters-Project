@@ -3,7 +3,8 @@ from pydantic import BaseModel, Field
 import operator
 import warnings
 
-from langchain.chat_models import init_chat_model
+# from langchain.chat_models import init_chat_model
+from open_deep_research.utils import init_chat_model
 from langchain_core.tools import tool, BaseTool
 from langchain_core.runnables import RunnableConfig
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -368,6 +369,7 @@ async def research_agent(state: SectionState, config: RunnableConfig):
         system_prompt += f"\n\n{configurable.mcp_prompt}"
 
     # Ensure we have at least one user message (required by Anthropic)
+
     messages = state.get("messages", [])
     if not messages:
         messages = [{"role": "user", "content": f"Please research and write the section: {state['section']}"}]
