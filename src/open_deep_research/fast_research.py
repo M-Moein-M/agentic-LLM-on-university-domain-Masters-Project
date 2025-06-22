@@ -9,6 +9,9 @@ from langgraph.prebuilt import ToolNode
 from langgraph.graph.message import add_messages
 
 
+import os
+
+
 from langgraph.graph import MessagesState
 from pydantic import BaseModel, Field
 
@@ -46,12 +49,14 @@ class AgentState(TypedDict):
 
 
 llm  = ChatOpenAI(
-    base_url="http://10.28.53.143:6000/v1",
-    api_key="xFhGltj52Gn",
+    base_url=os.getenv("CUSTOM_BASE_URL"),
+    api_key=os.getenv("CUSTOM_API_KEY"),
     model_name="/anvme/workspace/unrz103h-helma/base_models/full",
     temperature=0.3,
     streaming=True,
 )
+
+MAX_QUERY_COUNT = int(os.getenv("MAX_QUERY_COUNT"))
 
 
 async def generate_queires(state: AgentState) -> AgentState:
@@ -81,7 +86,6 @@ async def generate_queires(state: AgentState) -> AgentState:
     return state
     
 from dotenv import load_dotenv
-import os
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, Annotated, Sequence
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, ToolMessage
@@ -96,10 +100,15 @@ load_dotenv()
 
 
 @tool
-def retriever_tool(query: str) -> str:
+def retriever_tool(queries: List[str]) -> str:
     """
     This tool searches and returns the information from the FAU (Friedrich-Alexander-Universität Erlangen-Nürnberg) website
+
+    queries:
+        A list of SERP optimized queries that retrieve context from FAU website
     """
+    # trim extra
+    queries = queries[: min(len(queries), MAX_QUERY_COUNT)]
 
     return "„Wissen bewegen“ ist unser Motto und Leitmotiv an der FAU. Jeden Tag erinnert es uns an die zentrale Rolle und Verantwortung einer Universität in der Gesellschaft. Drei Grundwerte inspirieren, fundieren und leiten dabei unser Denken und Handeln im Alltag: Innovation, Vielfalt und Leidenschaft. Diese finden Sie in unserem Leitbild und in unseren strategischen Handlungsfeldern verankert. Ich lade Sie ein, unsere FAU näher kennenzulernen. Entdecken Sie die Menschen, die unsere Universität ausmachen, die Studienmöglichkeiten und Bildungsangebote, die Forschungsfelder und Forschungskooperationen … Seien Sie neugierig! Wussten Sie beispielsweise schon, dass die FAU die innovationsstärkste Universität in Deutschland ist und europaweit Platz 2 im Ranking der Innovationsführer belegt? Lernen Sie die wichtigsten Innovatoren und Innovationen der FAU kennen. Lassen Sie sich inspirieren. Kommen Sie vorbei und machen Sie mit!"
 
@@ -141,14 +150,16 @@ def take_action(state: AgentState) -> AgentState:
     tool_calls = state['messages'][-1].tool_calls
     results = []
     for t in tool_calls:
-        print(f"Calling Tool: {t['name']} with query: {t['args'].get('query', 'No query provided')}")
+        print(f"Calling Tool: {t['name']} with query: {t['args'].get('queries', 'No query provided')}")
         
         if not t['name'] in tools_dict: # Checks if a valid tool is present
             print(f"\nTool: {t['name']} does not exist.")
             result = "Incorrect Tool Name, Please Retry and Select tool from List of Available tools."
         
         else:
-            result = tools_dict[t['name']].invoke(t['args'].get('query', ''))
+            print("####", t)
+            result = tools_dict[t['name']].invoke(t['args'])
+            print("### reached")
             print(f"Result length: {len(str(result))}")
             
 
