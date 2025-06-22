@@ -1,3 +1,23 @@
+fast_query_writer="""You are performing research to provide material to answer a topic. 
+
+<topic>
+{topic}
+</topic>
+
+<Task>
+Your goal is to generate {number_of_queries} web search queries that will help gather information to address the topic. 
+
+The queries should:
+
+The search will be limited on resources from FAU (Friedrich-Alexander-Universität Erlangen-Nürnberg). Focus on balancing breadth and depth of queries and do not mention references to FAU.
+The topic can be a question or query from the user. Your task is to find the best SERP queries to address the topic. 
+Feel free to output less queries if the topic is specific enough. Drop the similar queris and avoid overlapping.
+</Task>
+
+Today is {today}
+"""
+
+
 report_planner_query_writer_instructions="""You are performing research for a report. 
 
 <Report topic>
