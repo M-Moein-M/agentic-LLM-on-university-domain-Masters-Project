@@ -207,7 +207,7 @@ async def tavily_search_async(search_queries, max_results: int = 5, topic: str =
     return search_docs
 
 @traceable
-def perplexity_search(search_queries):
+def searxng_search(search_queries):
     """Search the web using the Perplexity API.
     
     Args:
@@ -237,7 +237,12 @@ def perplexity_search(search_queries):
     search_docs = list()
     visited_urls = set()
     for query in search_queries:
-        url = f"http://localhost:8080/search?q={query} -filetype:pdf site:fau.eu OR site:fau.de OR site:doc.nhr.fau.de&format=json&engines=google"
+        domains_env = os.getenv("SEARXNG_DOMAINS", "fau.eu,fau.de")
+        domains = [d.strip() for d in domains_env.split(",")]
+        domains_str = ' OR '.join(["site:"+d for d in domains])
+        engines = os.getenv("SEARXNG_ENGINES", "google")
+        url = f"http://localhost:8080/search?q={query} -filetype:pdf {domains_str}&format=json&engines={engines}"
+        print("============== searxng url:", url)
         payload = {}
         headers = {}
 
@@ -245,7 +250,6 @@ def perplexity_search(search_queries):
         response = requests.request("GET", url, headers=headers, data=payload)
         
         response.raise_for_status()  # Raise exception for bad status codes
-        print("@@@@GOT RESPONSE FROM SEARXNG:", query)
         # Parse the response
         data = response.json()
         data["results"] = [r for r in data["results"] if r["url"] not in visited_urls]
@@ -254,8 +258,8 @@ def perplexity_search(search_queries):
         i = 0
         for i, res in enumerate(data["results"]):
             url = res["url"]
-            print("@@@@SEARXNG URL: ", url)
-            if url in visited_urls:
+            print("=> SEARXNG URL RESULT: ", url)
+            if url in visited_urls or url.endswith(".pdf"):
                 continue
             visited_urls.add(url)
             downloaded = trafilatura.fetch_url(url)
@@ -279,7 +283,7 @@ def perplexity_search(search_queries):
             "results": results
         })
 
-    with open("pereplexity_search.md", "w") as f:
+    with open("searxng_search.json", "w") as f:
         print(json.dumps(search_docs, indent=4), file=f)
         print("@@@@SEARCH DOC WRITTEN TO FILE")
     
@@ -1353,15 +1357,14 @@ async def select_and_execute_search(search_api: str, query_list: list[str], para
     Raises:
         ValueError: If an unsupported search API is specified
     """
-    search_api = "perplexity"
     if search_api == "tavily":
         # Tavily search tool used with both workflow and agent 
         return await tavily_search.ainvoke({'queries': query_list}, **params_to_pass)
     elif search_api == "duckduckgo":
         # DuckDuckGo search tool used with both workflow and agent 
         return await duckduckgo_search.ainvoke({'search_queries': query_list})
-    elif search_api == "perplexity":
-        search_results = perplexity_search(query_list, **params_to_pass)
+    elif search_api == "searxng":
+        search_results = searxng_search(query_list, **params_to_pass)
         return deduplicate_and_format_sources(search_results, max_tokens_per_source=4000)
     elif search_api == "exa":
         search_results = await exa_search(query_list, **params_to_pass)

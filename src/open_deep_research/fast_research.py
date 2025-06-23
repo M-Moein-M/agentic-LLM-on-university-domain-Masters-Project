@@ -10,7 +10,7 @@ from langgraph.graph.message import add_messages
 
 
 import os
-
+import time
 
 from langgraph.graph import MessagesState
 from pydantic import BaseModel, Field
@@ -96,6 +96,12 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.tools import tool
 
+from open_deep_research.utils import (
+    searxng_search
+)
+
+from open_deep_research.prompts import fast_answer_system_prompt
+
 load_dotenv()
 
 
@@ -110,7 +116,19 @@ def retriever_tool(queries: List[str]) -> str:
     # trim extra
     queries = queries[: min(len(queries), MAX_QUERY_COUNT)]
 
-    return "„Wissen bewegen“ ist unser Motto und Leitmotiv an der FAU. Jeden Tag erinnert es uns an die zentrale Rolle und Verantwortung einer Universität in der Gesellschaft. Drei Grundwerte inspirieren, fundieren und leiten dabei unser Denken und Handeln im Alltag: Innovation, Vielfalt und Leidenschaft. Diese finden Sie in unserem Leitbild und in unseren strategischen Handlungsfeldern verankert. Ich lade Sie ein, unsere FAU näher kennenzulernen. Entdecken Sie die Menschen, die unsere Universität ausmachen, die Studienmöglichkeiten und Bildungsangebote, die Forschungsfelder und Forschungskooperationen … Seien Sie neugierig! Wussten Sie beispielsweise schon, dass die FAU die innovationsstärkste Universität in Deutschland ist und europaweit Platz 2 im Ranking der Innovationsführer belegt? Lernen Sie die wichtigsten Innovatoren und Innovationen der FAU kennen. Lassen Sie sich inspirieren. Kommen Sie vorbei und machen Sie mit!"
+    search_results = searxng_search(queries)
+
+    context = ""
+    for res in search_results:
+        context += f"# {res["query"]}"
+        for r in res["results"]:
+            context += f"## {r["title"]} (source: {r["url"]})\n"
+            context += f"{r["raw_content"]}"
+
+    with open("searxng_result.md", "w") as f:
+        print(context, file=f)
+        print("written search result .md file")
+    return context
 
 
 tools = [retriever_tool]
@@ -119,6 +137,7 @@ llm = llm.bind_tools(tools)
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
+    time: int
 
 
 def should_continue(state: AgentState):
@@ -127,18 +146,14 @@ def should_continue(state: AgentState):
     return hasattr(result, 'tool_calls') and len(result.tool_calls) > 0
 
 
-system_prompt = """
-You are an intelligent AI assistant who answers questions regarding FAU university. Use the retriever tool available to answer questions about the FAU and any topic that canbe related to this university. You can make multiple calls if needed.
-"""
-
-
 tools_dict = {our_tool.name: our_tool for our_tool in tools} # Creating a dictionary of our tools
 
 # LLM Agent
 def call_llm(state: AgentState) -> AgentState:
     """Function to call the LLM with the current state."""
     messages = list(state['messages'])
-    messages = [SystemMessage(content=system_prompt)] + messages
+    # messages = [SystemMessage(content=system_prompt)] + messages
+    messages = [SystemMessage(content=fast_answer_system_prompt)] + messages
     message = llm.invoke(messages)
     return {'messages': [message]}
 
