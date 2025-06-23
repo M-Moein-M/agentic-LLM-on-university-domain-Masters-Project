@@ -237,26 +237,29 @@ def searxng_search(search_queries):
     search_docs = list()
     visited_urls = set()
     for query in search_queries:
-        domains_env = os.getenv("SEARXNG_DOMAINS", "fau.eu,fau.de")
-        domains = [d.strip() for d in domains_env.split(",")]
-        domains_str = ' OR '.join(["site:"+d for d in domains])
-        engines = os.getenv("SEARXNG_ENGINES", "google")
-        url = f"http://localhost:8080/search?q={query} -filetype:pdf {domains_str}&format=json&engines={engines}"
-        print("============== searxng url:", url)
-        payload = {}
-        headers = {}
-
-
-        response = requests.request("GET", url, headers=headers, data=payload)
+        def get_results(query, engine):
+            """ send the request """
+            domains_env = os.getenv("SEARXNG_DOMAINS", "fau.eu,fau.de")
+            domains = [d.strip() for d in domains_env.split(",")]
+            domains_str = ' OR '.join(["site:"+d for d in domains])
+            
+            url = f"http://localhost:8080/search?q={query} -filetype:pdf {domains_str}&format=json&engines={engine}"
+            response = requests.request("GET", url)
+            response.raise_for_status()  # Raise exception for bad status codes
+            # Parse the response
+            data = response.json()
+            print("============== searxng api url:", url)
+            return  [r for r in data["results"] if r["url"] not in visited_urls]
         
-        response.raise_for_status()  # Raise exception for bad status codes
-        # Parse the response
-        data = response.json()
-        data["results"] = [r for r in data["results"] if r["url"] not in visited_urls]
-        
+        serp = get_results(query, "google")
+        # try with dockdockgo if google fails
+        if len(serp) == 0:
+            print("** using back up search engine")
+            serp = get_results(query, "dockdockgo")
+
         results = list()
         i = 0
-        for i, res in enumerate(data["results"]):
+        for i, res in enumerate(serp):
             url = res["url"]
             print("=> SEARXNG URL RESULT: ", url)
             if url in visited_urls or url.endswith(".pdf"):
