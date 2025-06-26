@@ -151,8 +151,11 @@ tools_dict = {our_tool.name: our_tool for our_tool in tools} # Creating a dictio
 # LLM Agent
 def call_llm(state: AgentState) -> AgentState:
     """Function to call the LLM with the current state."""
-    messages = list(state['messages'])
-    # messages = [SystemMessage(content=system_prompt)] + messages
+    if isinstance(state["messages"][-1], HumanMessage):
+        # clean previous tools
+        messages = [m for m in state["messages"]if not isinstance(m, ToolMessage)]
+    else:
+        messages = list(state['messages'])
     messages = [SystemMessage(content=fast_answer_system_prompt)] + messages
     message = llm.invoke(messages)
     return {'messages': [message]}
@@ -172,9 +175,7 @@ def take_action(state: AgentState) -> AgentState:
             result = "Incorrect Tool Name, Please Retry and Select tool from List of Available tools."
         
         else:
-            print("####", t)
             result = tools_dict[t['name']].invoke(t['args'])
-            print("### reached")
             print(f"Result length: {len(str(result))}")
             
 
