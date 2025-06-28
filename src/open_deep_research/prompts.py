@@ -1,5 +1,13 @@
-followup_seed_prompt = """
+fast_answer_evaluator = """You are an expert in Quality evaluation of a retreival system
 Based on the discussion obove, with having:
+1. A set of **queries** related to FAU (Friedrich-Alexander-Universität Erlangen-Nürnberg) setting.
+2. A **text** that provides answers or context for those queries.
+
+Your task is to evaluate the response based on the queries. Does the reponse provide enough context and if the context answers the queries? Only a boolean value is needed.
+Evaluate if the answer to the qeuries is relevant or not by a True or False output.
+"""
+
+followup_seed_prompt = """Based on the discussion obove, with having:
 1. A set of **queries** related to FAU (Friedrich-Alexander-Universität Erlangen-Nürnberg) setting.
 2. A **text** that provides answers or context for those queries.
 
@@ -8,8 +16,9 @@ Your task is to generate a list of **new, thoughtful SERP queries** that:
 - Broaden the scope by exploring **related but distinct topics** within the boundaries of the topic of the text and what a university encompasses—such as academic departments, research labs, student life, campus infrastructure, partnerships, innovation centers, community engagement, policy implications, or future developments.
 
 When generating new query:
+- Do **not** assume prevoius context. Replace all the names and references. Each single query should be understandable by its own without the previous chats or answers.
 - Do **not** simply rephrase or restate the original SERP queries.
-- The query should force exploration and the answer should not already be in the answer given to previous queries.
+- The query should force exploration and the answer should not already be in the last given answer.
 - Consider **multiple dimensions**—administrative, academic, technical, ethical, social, and logistical.
 - Keep the queries general and high level to encourage better knowledge coverage
 """

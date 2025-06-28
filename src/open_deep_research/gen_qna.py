@@ -1,4 +1,4 @@
-from typing import Annotated, Sequence, TypedDict, List
+from typing import Annotated, Sequence, TypedDict, List, Literal
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from open_deep_research.prompts import (
     fast_query_writer,
     followup_seed_prompt,
+    fast_answer_evaluator,
 )
 
 load_dotenv()
@@ -32,6 +33,9 @@ class AgentState(TypedDict):
 
 class Queries(BaseModel):
     queries: List[str] = Field(description="List of search queries.")
+
+class Evaluation(BaseModel):
+    evaluation: bool = Field(description="Whether answer fits properly to the queries or not")
 
 
 llm  = ChatOpenAI(
@@ -76,14 +80,21 @@ tools = [retriever_tool]
 llm = llm.bind_tools(tools)
 
 
-def should_continue(state: AgentState):
+def should_continue(state: AgentState) -> Literal["followup_seed", "retriever_agent", END]:
     """Check if the last message contains tool calls."""
     result = state['messages'][-1]
-    if hasattr(result, 'tool_calls') and len(result.tool_calls) > 0:
+    if hasattr(result, 'tool_calls') and result.tool_calls:
         return "retriever_agent"
-    else:
-        return "followup_seed"
     
+    # investigate the quality of response based on the queries
+    evaluator = llm.with_structured_output(Evaluation)
+    messages = [SystemMessage(content=fast_answer_evaluator)] + list(state['messages'])
+    message = evaluator.invoke(messages)
+    if message.evaluation:
+        return "followup_seed"
+    else:
+        print("# EVALUATOR: BAD SAMPLE. END")
+        return END
 
 
 tools_dict = {our_tool.name: our_tool for our_tool in tools} # Creating a dictionary of our tools
@@ -138,9 +149,6 @@ def take_action(state: AgentState) -> AgentState:
 
     print("Tools Execution Complete. Back to the model!")
     return {'messages': results}
-
-def evaluate_response(state: AgentState):
-    """ evaluates relativity of query and provided response """
 
 
 graph = StateGraph(AgentState)
