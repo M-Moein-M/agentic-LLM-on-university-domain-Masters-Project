@@ -236,21 +236,21 @@ def searxng_search(search_queries):
     MAX_TEXT_LENGTH = 10_000
     search_docs = list()
     visited_urls = set()
-    for query in search_queries:
-        def get_results(query, engine):
-            """ send the request """
-            domains_env = os.getenv("SEARXNG_DOMAINS", "fau.eu,fau.de")
-            domains = [d.strip() for d in domains_env.split(",")]
-            domains_str = ' OR '.join(["site:"+d for d in domains])
-            
-            url = f"http://localhost:8080/search?q={query} -filetype:pdf {domains_str}&format=json&engines={engine}"
-            response = requests.request("GET", url)
-            response.raise_for_status()  # Raise exception for bad status codes
-            # Parse the response
-            data = response.json()
-            print("============== searxng api url:", url)
-            return  [r for r in data["results"] if r["url"] not in visited_urls]
+    def get_results(query, engine):
+        """ send the request """
+        domains_env = os.getenv("SEARXNG_DOMAINS", "fau.eu,fau.de")
+        domains = [d.strip() for d in domains_env.split(",")]
+        domains_str = ' OR '.join(["site:"+d for d in domains])
         
+        url = f"http://localhost:8080/search?q={query} -filetype:pdf {domains_str}&format=json&engines={engine}"
+        response = requests.request("GET", url)
+        response.raise_for_status()  # Raise exception for bad status codes
+        # Parse the response
+        data = response.json()
+        return  [r for r in data["results"] if r["url"] not in visited_urls]
+    
+    for query in search_queries:
+        print(query)
         serp = get_results(query, "google")
         # try with dockdockgo if google fails
         if len(serp) == 0:
@@ -261,17 +261,17 @@ def searxng_search(search_queries):
         i = 0
         for i, res in enumerate(serp):
             url = res["url"]
-            print("=> SEARXNG URL RESULT: ", url)
             if url in visited_urls or url.endswith(".pdf"):
                 continue
             visited_urls.add(url)
             downloaded = trafilatura.fetch_url(url)
             if downloaded:
+                print("searxng - downloaded url:", url)
                 text = trafilatura.extract(
                     downloaded,
                     output_format="markdown")
                 res["raw_content"] = text
-                if len(text) > MAX_TEXT_LENGTH:
+                if not text or len(text) > MAX_TEXT_LENGTH:
                     continue
                 results.append(res)
             if len(results) >= INCLUDE_TOP_N_RESULTS:
@@ -1464,3 +1464,21 @@ def init_chat_model(model: str, *, temperature: float = 0, streaming: bool = Tru
         api_key="xFhGltj52Gn",        
         # **kwargs,
     )
+
+def strip_thinking_tokens(text: str) -> str:
+    """
+    Remove <think> and </think> tags and their content from the text.
+    
+    Iteratively removes all occurrences of content enclosed in thinking tokens.
+    
+    Args:
+        text (str): The text to process
+        
+    Returns:
+        str: The text with thinking tokens and their content removed
+    """
+    while "<think>" in text and "</think>" in text:
+        start = text.find("<think>")
+        end = text.find("</think>") + len("</think>")
+        text = text[:start] + text[end:]
+    return text

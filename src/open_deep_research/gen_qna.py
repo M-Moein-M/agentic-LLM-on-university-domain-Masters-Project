@@ -1,3 +1,4 @@
+import json
 from typing import Annotated, Sequence, TypedDict, List, Literal
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -10,7 +11,8 @@ from dotenv import load_dotenv
 from open_deep_research.prompts import fast_answer_system_prompt
 from open_deep_research.utils import (
     searxng_search,
-    get_today_str
+    get_today_str,
+    strip_thinking_tokens
 )
 
 
@@ -28,14 +30,22 @@ from open_deep_research.prompts import (
 
 load_dotenv()
 
-class AgentState(TypedDict):
-    messages: Annotated[Sequence[BaseMessage], add_messages]
+
+seed_questions = [
+    "Tell me about FAU HPC clusters and give me an overview of them.",
+]
+
 
 class Queries(BaseModel):
-    queries: List[str] = Field(description="List of search queries.")
+    queries: List[str] = Field(description="List of search queries")
 
 class Evaluation(BaseModel):
     evaluation: bool = Field(description="Whether answer fits properly to the queries or not")
+
+class AgentState(TypedDict):
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+    queries : Queries
+    answer : str = Field(description="The answer to the qeuries")
 
 
 llm  = ChatOpenAI(
@@ -90,6 +100,9 @@ def should_continue(state: AgentState) -> Literal["followup_seed", "retriever_ag
     evaluator = llm.with_structured_output(Evaluation)
     messages = [SystemMessage(content=fast_answer_evaluator)] + list(state['messages'])
     message = evaluator.invoke(messages)
+
+    # write the query and response
+
     if message.evaluation:
         return "followup_seed"
     else:
@@ -107,10 +120,10 @@ def call_llm(state: AgentState) -> AgentState:
         messages = [m for m in state["messages"]if not isinstance(m, ToolMessage)]
     else:
         messages = list(state['messages'])
-    print("## STATE CALL LLM", state)
     messages = [SystemMessage(content=fast_answer_system_prompt)] + messages
     message = llm.invoke(messages)
-    return {'messages': [message]}
+    state["messages"] = [message]
+    return state
 
 
 def generate_followup_seeds(state: AgentState) -> AgentState:
@@ -120,15 +133,32 @@ def generate_followup_seeds(state: AgentState) -> AgentState:
 
     
     messages = list(state['messages'])
-    messages = [SystemMessage(content=followup_seed_prompt)] + messages
+    # write the answer
+    if messages:
+        answer = messages[-1].content
+        answer = strip_thinking_tokens(answer)
+        obj = {"queries": state.get("queries"), "text": answer}
+        with open("web_generated_qna.jsonl", "a") as f:
+            f.write(json.dumps(obj, ensure_ascii=False)+"\n")
+    
+
+    global seed_questions
+    prompt = followup_seed_prompt.format(queries=state.get("queries")+seed_questions)
+
+    messages = [SystemMessage(content=prompt)] + messages
     message = query_writer.invoke(messages)
 
-    return {'messages': [message]}
+    seed_questions += message.queries
+    print("===> ADDED SEED QUESTIONS: ", '\n'.join(message.queries))
+
+    return state
 
 
 # Retriever Agent
 def take_action(state: AgentState) -> AgentState:
     """Execute tool calls from the LLM's response."""
+
+    return_state = AgentState()
 
     tool_calls = state['messages'][-1].tool_calls
     results = []
@@ -141,14 +171,16 @@ def take_action(state: AgentState) -> AgentState:
         
         else:
             result = tools_dict[t['name']].invoke(t['args'])
-            print(f"Result length: {len(str(result))}")
-            
+
+        if t["name"] == retriever_tool.name:
+            return_state["queries"] = t['args'].get('queries', [])
 
         # Appends the Tool Message
         results.append(ToolMessage(tool_call_id=t['id'], name=t['name'], content=str(result)))
 
     print("Tools Execution Complete. Back to the model!")
-    return {'messages': results}
+    return_state["messages"] = results
+    return return_state
 
 
 graph = StateGraph(AgentState)
@@ -163,3 +195,18 @@ graph.add_edge("followup_seed", END)
 graph.add_conditional_edges("llm",should_continue)
 
 app = graph.compile()
+
+MAX_SEED_QUESTIONS = 10
+if __name__ == "__main__":
+
+    while MAX_SEED_QUESTIONS > 0 and seed_questions:
+        print("========= next seed qeustion =========", MAX_SEED_QUESTIONS, "len seed qs:", len(seed_questions))
+        MAX_SEED_QUESTIONS -= 1
+        q = seed_questions.pop(0)
+        try:
+            app.invoke({"messages": HumanMessage(q)})
+        except Error:
+            print("Error - skipped", q)
+
+print("list of remaining seed questions:")
+print("\n".join(seed_questions))

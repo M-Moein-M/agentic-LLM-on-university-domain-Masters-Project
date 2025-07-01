@@ -7,20 +7,28 @@ Your task is to evaluate the response based on the queries. Does the reponse pro
 Evaluate if the answer to the qeuries is relevant or not by a True or False output.
 """
 
-followup_seed_prompt = """Based on the discussion obove, with having:
-1. A set of **queries** related to FAU (Friedrich-Alexander-Universität Erlangen-Nürnberg) setting.
-2. A **text** that provides answers or context for those queries.
+followup_seed_prompt = """
+You are given a list of queires related to a university setting.
 
-Your task is to generate a list of **new, thoughtful SERP queries** that:
-- Explore the topic in **greater depth** related to the topic of the provided text.
-- Broaden the scope by exploring **related but distinct topics** within the boundaries of the topic of the text and what a university encompasses—such as academic departments, research labs, student life, campus infrastructure, partnerships, innovation centers, community engagement, policy implications, or future developments.
+Your task is to **gradually expand knowledge** around the topics of these queries by generating a **sequence of follow-up questions** that:
+- Build logically from the initial topic, exploring both depth and breadth in a progressive, structured way.
+- Are phrased in **natural, human-like language**, not as search engine queries. Each should sound like a thoughtful question a person might ask in a conversation, interview, academic seminar, or classroom setting.
+- Stay within the scope of university-related contexts such as academic programs, research labs, student life, infrastructure, administration, innovation, pedagogy, or university policy.
+- New questions should not overlap with the last queries or questions. Basically every new question should be different.
 
-When generating new query:
-- Do **not** assume prevoius context. Replace all the names and references. Each single query should be understandable by its own without the previous chats or answers.
-- Do **not** simply rephrase or restate the original SERP queries.
-- The query should force exploration and the answer should not already be in the last given answer.
-- Consider **multiple dimensions**—administrative, academic, technical, ethical, social, and logistical.
-- Keep the queries general and high level to encourage better knowledge coverage
+Last Queries. Generate new questions that are distince to the topics of these queries. If it's not possible, output an empty list of questions:
+{queries}
+
+Instructions:
+1. The generated queries should be new and distinctive of the .
+2. Generate a list of follow-up questions that expand the topic gradually.
+3. Phrase the questions clearly and naturally. Avoid keyword fragments or search-style syntax.
+4. Vary the types of questions: factual, reflective, analytical, speculative, or comparative.
+5. Quality and diversity of questions are more important. Minimize overlap of topics and reduce the number of questions if they are too similar.
+6. Focus the questions on important things.
+7. Generate new questions. Return an empty list if the question are similar to Last queries.
+
+
 """
 
 fast_answer_system_prompt = """
