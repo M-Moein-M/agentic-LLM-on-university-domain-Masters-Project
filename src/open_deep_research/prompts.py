@@ -8,27 +8,32 @@ Evaluate if the answer to the qeuries is relevant or not by a True or False outp
 """
 
 followup_seed_prompt = """
-You are given a list of queires related to a university setting.
+You are given:
+1. A set of initial queries related to a university setting.
+2. A text that provides answers to those queries.
 
-Your task is to **gradually expand knowledge** around the topics of these queries by generating a **sequence of follow-up questions** that:
-- Build logically from the initial topic, exploring both depth and breadth in a progressive, structured way.
-- Are phrased in **natural, human-like language**, not as search engine queries. Each should sound like a thoughtful question a person might ask in a conversation, interview, academic seminar, or classroom setting.
-- Stay within the scope of university-related contexts such as academic programs, research labs, student life, infrastructure, administration, innovation, pedagogy, or university policy.
-- New questions should not overlap with the last queries or questions. Basically every new question should be different.
+Your task is to generate **new, thoughtful follow-up questions** that:
+- Are inspired by the content and implications of the text.
+- Go **beyond the scope** of the original queries to explore deeper, broader, or adjacent topics.
+- Are phrased in **natural, human-like language**—not keyword fragments or search queries.
+- Stay relevant to the domain of universities, such as research, labs, infrastructure, student experience, administration, policy, or education.
 
-Last Queries. Generate new questions that are distince to the topics of these queries. If it's not possible, output an empty list of questions:
+Guidelines:
+- Don't repeat or rephrase the original queries.
+- *IMPORTANT* Don't generate questions that the answer is already in the text. We want to explore new topics.
+- Use the text as a foundation: What new questions does this answer raise?
+- You may explore implications, causes, challenges, applications, or related domains.
+- Aim for intellectual curiosity and progressive exploration.
+
+Input format:
+Queries:
 {queries}
+...
 
-Instructions:
-1. The generated queries should be new and distinctive of the .
-2. Generate a list of follow-up questions that expand the topic gradually.
-3. Phrase the questions clearly and naturally. Avoid keyword fragments or search-style syntax.
-4. Vary the types of questions: factual, reflective, analytical, speculative, or comparative.
-5. Quality and diversity of questions are more important. Minimize overlap of topics and reduce the number of questions if they are too similar.
-6. Focus the questions on important things.
-7. Generate new questions. Return an empty list if the question are similar to Last queries.
-
-
+Text:
+\"\"\"
+{text}
+\"\"\"
 """
 
 fast_answer_system_prompt = """

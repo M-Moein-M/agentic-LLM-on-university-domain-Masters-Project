@@ -143,7 +143,7 @@ def generate_followup_seeds(state: AgentState) -> AgentState:
     
 
     global seed_questions
-    prompt = followup_seed_prompt.format(queries=state.get("queries")+seed_questions)
+    prompt = followup_seed_prompt.format(queries=state.get("queries")+seed_questions, text=answer)
 
     messages = [SystemMessage(content=prompt)] + messages
     message = query_writer.invoke(messages)
@@ -208,5 +208,5 @@ if __name__ == "__main__":
         except Error:
             print("Error - skipped", q)
 
-print("list of remaining seed questions:")
+print("*** list of remaining seed questions:")
 print("\n".join(seed_questions))
