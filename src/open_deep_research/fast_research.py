@@ -20,7 +20,8 @@ from open_deep_research.prompts import (
 )
 
 from open_deep_research.utils import (
-    get_today_str
+    get_today_str,
+    strip_thinking_tokens
 )
 
 from open_deep_research.state import (
@@ -97,7 +98,8 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.tools import tool
 
 from open_deep_research.utils import (
-    searxng_search
+    searxng_search,
+    es_search
 )
 
 from open_deep_research.prompts import fast_answer_system_prompt
@@ -117,15 +119,16 @@ def retriever_tool(queries: List[str]) -> str:
     queries = queries[: min(len(queries), MAX_QUERY_COUNT)]
 
     search_results = searxng_search(queries)
+    # search_results = es_search(queries)
 
     context = ""
     for res in search_results:
-        context += f"# {res["query"]}"
+        context += f"# {res["query"]}\n"
         for r in res["results"]:
             context += f"## {r["title"]} (source: {r["url"]})\n"
             context += f"{r["raw_content"]}"
 
-    with open("searxng_result.md", "w") as f:
+    with open("elastic_result.md", "w") as f:
         print(context, file=f)
         print("written search result .md file")
     return context
@@ -158,6 +161,11 @@ def call_llm(state: AgentState) -> AgentState:
         messages = list(state['messages'])
     messages = [SystemMessage(content=fast_answer_system_prompt)] + messages
     message = llm.invoke(messages)
+
+    # # for Jour fix
+    # with open(f"JF_deep_research/{FILENAME}.md", "w") as f:
+    #     f.write(strip_thinking_tokens(message.content) + "\n")
+
     return {'messages': [message]}
 
 
@@ -200,14 +208,54 @@ graph.set_entry_point("llm")
 
 app = graph.compile()
 
+QUESTIONS = [
+# "1. Studienangebot und Orientierung",
+"Welche Bachelorstudiengänge bietet die FAU an?",
+"Gibt es einen Online-Studiengangsfinder oder eine interaktive Suchfunktion?",
+"Welche Studiengänge werden in englischer Sprache angeboten?",
+"Welche Studiengänge sind zulassungsbeschränkt?",
+"Gibt es ein Orientierungsstudium oder eine allgemeine Studienberatung?",
+# "📥 2. Bewerbung und Zulassung",
+"Wie läuft die Online-Bewerbung für ein Bachelorstudium an der FAU ab?",
+"Welche Unterlagen müssen bei einer Bewerbung für ein Masterstudium eingereicht werden?",
+"Welche Bewerbungsfristen gelten für das Sommersemester 2026?",
+"Wie bewerbe ich mich mit einem ausländischen Schulabschluss?",
+"Was ist das „Vorprüfungsdokument“ (VPD) und wo beantrage ich es?",
+# "📚 3. Studienorganisation",
+"Wo finde ich das Vorlesungsverzeichnis der FAU?",
+"Was ist „campo.fau.de“ und wofür wird es genutzt?",
+"Wie kann ich ein Urlaubssemester beantragen?",
+"Wie funktioniert die Belegung von Seminaren und Übungen?",
+"Wo finde ich den akademischen Kalender mit Semesterzeiten und Prüfungsphasen?",
+# "🧩 4. Besondere Studienformen und -bedingungen",
+"Gibt es Teilzeitstudiengänge an der FAU?",
+"Wie unterstützt die FAU Studierende mit Kind?",
+"Welche Nachteilsausgleiche gibt es für Studierende mit Behinderung oder chronischer Erkrankung?",
+"Gibt es ein „Studium Generale“ oder interdisziplinäre Wahlmöglichkeiten?",
+"Welche Möglichkeiten gibt es für ein Doppelstudium oder ein Fachwechsel?",
+# "🌍 5. Internationale Studienoptionen",
+"Welche Austauschprogramme bietet die FAU an?",
+"Welche Partneruniversitäten hat die FAU in Europa?",
+"Wie läuft die Anerkennung von im Ausland erbrachten Studienleistungen?",
+"Gibt es eine zentrale Beratungsstelle für Outgoing-Studierende?",
+"Was müssen internationale Studierende bei der Einschreibung beachten?",
+# "🧑‍🤝‍🧑 6. Unterstützung und Leben im Studium",
+"Wer berät zu psychischen Belastungen oder Studienzweifeln?",
+"Gibt es eine Anlaufstelle für finanzielle Unterstützung, z. B. BAföG oder Notfonds?",
+"Wie finde ich Informationen zu Wohnheimen oder privatem Wohnraum?",
+"Welche Möglichkeiten für studentisches Engagement gibt es an der FAU?",
+"Welche Beratungsstellen oder Programme fördern Diversität und Inklusion?",
+]
 
 
-# graph = StateGraph(AgentState)
+FILENAME = ""
+if __name__ == "__main__":
 
-# graph.add_node("query_generator", generate_queires)
-
-
-# graph.add_edge(START, "query_generator")
-# graph.add_edge("query_generator", END)
-
-# app = graph.compile()
+    for q in QUESTIONS:
+        print("========= next seed qeustion =========", q)
+        try:
+            FILENAME = "_"+q
+            app.invoke({"messages": [HumanMessage(q)]})
+        except Exception as e:
+            print("Error - skipped", q)
+            print(e)

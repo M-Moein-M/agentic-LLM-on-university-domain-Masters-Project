@@ -24,6 +24,8 @@ from langchain_core.tools import tool
 
 from langsmith import traceable
 
+from elasticsearch import Elasticsearch
+
 from open_deep_research.state import Section
 from open_deep_research.configuration import Configuration, SearchAPI
 from langchain_ollama import ChatOllama
@@ -38,6 +40,18 @@ import datetime
 from dotenv import load_dotenv
 load_dotenv()
 
+FAU_CORPUS = dict()
+with open("/home/horatio/projects/corpus/main_corpus_nhr_fau_de_eu.jsonl", "r", encoding="utf-8")as f:
+    for doc in f:
+        doc = json.loads(doc)
+        metadata = doc.get("metadata")
+        if metadata:
+            url = metadata["url"]
+        else:
+            url = doc["url"]
+        if url:
+            FAU_CORPUS.update({url: doc})
+    print("Corpus loaded")
 
 def get_today_str() -> str:
     """Get current date in a human-readable format."""
@@ -86,7 +100,7 @@ def get_search_params(search_api: str, search_api_config: Optional[Dict[str, Any
     # Filter the config to only include accepted parameters
     return {k: v for k, v in search_api_config.items() if k in accepted_params}
 
-def deduplicate_and_format_sources(search_response, max_tokens_per_source=5000, include_raw_content=True):
+def deduplicate_and_format_sources(search_response, max_tokens_per_source=4000, include_raw_content=True):
     """
     Takes a list of search responses and formats them into a readable string.
     Limits the raw_content to approximately max_tokens_per_source tokens.
@@ -207,6 +221,81 @@ async def tavily_search_async(search_queries, max_results: int = 5, topic: str =
     return search_docs
 
 @traceable
+def es_search(search_queries):
+    """Search local documents using Elasticsearch"""
+    INCLUDE_TOP_N_RESULTS = 10
+    MAX_TEXT_LENGTH = 10_000
+    search_docs = list()
+    visited_urls = set()
+    client = Elasticsearch(
+        # For local development
+        "http://localhost:9200",
+        basic_auth=("elastic", "zb3BaJvO")
+    )
+
+    def get_results(query):
+        """ send the request """
+
+        res = client.search(
+            index="search-test02",
+            explain=True,
+            size=INCLUDE_TOP_N_RESULTS+10,
+            query={
+                "multi_match" : {
+                    "query":    query,
+                    "fields": ["text", "title", "description", "url"]
+                }
+            }
+        )
+
+        hits = list()
+        for hit in res.body["hits"]["hits"]:
+            if hit["_source"]["url"] in visited_urls:
+                continue
+            hits.append({
+                "text": hit["_source"]["text"],
+                "url": hit["_source"]["url"],
+                "title": hit["_source"]["title"] + ";" +  hit["_source"]["description"]
+            })
+        
+        # return  [r for r in data["results"] if r["url"] not in visited_urls]
+        return hits
+    
+    for query in search_queries:
+        print(query)
+        serp = get_results(query)
+        # try with dockdockgo if google fails
+        if len(serp) == 0:
+            print("** NO RESULTS FOUND WITH ELASTICSEARCH **")
+
+        results = list()
+        i = 0
+        for i, res in enumerate(serp):
+            url = res["url"]
+            if url in visited_urls or url.endswith(".pdf") or not res["text"] or len(res["text"]) > MAX_TEXT_LENGTH:
+                continue
+            visited_urls.add(url)
+            res["raw_content"] = res["text"]  # to match searxng scheme
+            results.append(res)
+            if len(results) >= INCLUDE_TOP_N_RESULTS:
+                break
+        
+        # Format response to match Tavily structure
+        search_docs.append({
+            "query": query,
+            "follow_up_questions": None,
+            "answer": None,
+            "images": [],
+            "results": results
+        })
+
+    with open("ELASTIC_search.json", "w") as f:
+        print(json.dumps(search_docs, indent=4), file=f)
+        print("@@@@ SEARCH DOC WRITTEN TO FILE")
+    
+    return search_docs
+
+@traceable
 def searxng_search(search_queries):
     """Search the web using the Perplexity API.
     
@@ -233,7 +322,7 @@ def searxng_search(search_queries):
             }
     """
     INCLUDE_TOP_N_RESULTS = 3
-    MAX_TEXT_LENGTH = 10_000
+    MAX_TEXT_LENGTH = 9_000
     search_docs = list()
     visited_urls = set()
     def get_results(query, engine):
@@ -264,20 +353,28 @@ def searxng_search(search_queries):
             if url in visited_urls or url.endswith(".pdf"):
                 continue
             visited_urls.add(url)
-            downloaded = trafilatura.fetch_url(url)
-            if downloaded:
-                print("searxng - downloaded url:", url)
-                text = trafilatura.extract(
-                    downloaded,
-                    output_format="markdown")
-                res["raw_content"] = text
-                if not text or len(text) > MAX_TEXT_LENGTH:
-                    continue
-                results.append(res)
+            if FAU_CORPUS.get(url, None):
+                res["raw_content"] = FAU_CORPUS.get(url)["text"]
+                print("---- CACHE HIT:", url)
+            else:
+                downloaded = trafilatura.fetch_url(url)
+                if downloaded:
+                    print("searxng - downloaded url:", url)
+                    text = trafilatura.extract(
+                        downloaded,
+                        output_format="markdown")
+                    
+                    # add to cache
+                    FAU_CORPUS.update({url: {"text": text}})
+                    
+                    res["raw_content"] = text
+                    if not text or len(text) > MAX_TEXT_LENGTH:
+                        text = text[:MAX_TEXT_LENGTH] + "... [truncated]" # truncate
+            results.append(res)
             if len(results) >= INCLUDE_TOP_N_RESULTS:
                 break
         
-        # Format response to match Tavily structure
+        # format response to match Tavily structure
         search_docs.append({
             "query": query,
             "follow_up_questions": None,

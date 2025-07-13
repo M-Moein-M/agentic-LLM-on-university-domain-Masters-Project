@@ -55,16 +55,16 @@ fast_query_writer="""You are performing research to provide material to answer a
 </topic>
 
 <Task>
-Your goal is to generate {number_of_queries} web search queries that will help gather information to address the topic. 
+Your goal is to generate {number_of_queries} web search queries that will help gather information to address the topic. Stick to the topic language to generate queries.
 
 The queries should:
 
 The search will be limited on resources from FAU (Friedrich-Alexander-Universität Erlangen-Nürnberg). Focus on balancing breadth and depth of queries and do not mention references to FAU.
-The topic can be a question or query from the user. Your task is to find the best SERP queries to address the topic. 
+The topic can be a question or query from the user. Your task is to find the best SERP queries to address the topic.
+Queries should look for most recent data. Today is {today}.
 Feel free to output less queries if the topic is specific enough. Drop the similar queris and avoid overlapping.
 </Task>
 
-Today is {today}
 """
 
 
