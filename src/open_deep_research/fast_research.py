@@ -15,9 +15,6 @@ import time
 from langgraph.graph import MessagesState
 from pydantic import BaseModel, Field
 
-from open_deep_research.prompts import (
-    fast_query_writer,
-)
 
 from open_deep_research.utils import (
     get_today_str,
@@ -58,33 +55,8 @@ llm  = ChatOpenAI(
 )
 
 MAX_QUERY_COUNT = int(os.getenv("MAX_QUERY_COUNT"))
+MAX_MODEL_LENGTH = 3*int(0.85*int(os.getenv("MAX_MODEL_TOKENS")))
 
-
-async def generate_queires(state: AgentState) -> AgentState:
-    """ Generate list of targetted SERP queries to gather information to answer topic query
-
-    Args:
-        state: current graph state containing the topic
-    
-    Returns:
-        Dict containing list of queries
-    """
-    print("## STATE:", state)
-    topic = state["topic"]
-    query_writer = llm.with_structured_output(Queries)
-
-    system_instructions_query = fast_query_writer.format(
-        topic=topic,
-        number_of_queries=4,
-        today=get_today_str()
-    )
-    results = await query_writer.ainvoke(
-        [SystemMessage(content=system_instructions_query),
-        HumanMessage(content="Generate SERP queries that will help retrieving information for topic.")])
-    state["queries"] = results.queries
-    print("## STATE:", state)
-    
-    return state
     
 from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END
@@ -104,13 +76,15 @@ from open_deep_research.utils import (
 
 from open_deep_research.prompts import fast_answer_system_prompt
 
-load_dotenv()
-
 
 @tool
 def retriever_tool(queries: List[str]) -> str:
     """
     This tool searches and returns the information from the FAU (Friedrich-Alexander-Universität Erlangen-Nürnberg) website
+
+    Hints to use:
+        keep the queries in one single language. Either English or German based on the user message
+        Generate max 4 queries. Quality is more importatnt than quanity
 
     queries:
         A list of SERP optimized queries that retrieve context from FAU website
@@ -126,7 +100,11 @@ def retriever_tool(queries: List[str]) -> str:
         context += f"# {res["query"]}\n"
         for r in res["results"]:
             context += f"## {r["title"]} (source: {r["url"]})\n"
-            context += f"{r["raw_content"]}"
+            context += f"{r.get("raw_content", "ERROR 404 - NO CONTENT FOUND FOR THIS PAGE")}"
+    
+    if len(context) > MAX_MODEL_LENGTH:
+        print(f"<<< CUTTING CONTEXT from {len(context)} to {MAX_MODEL_LENGTH} >>>")
+        context = context[:MAX_MODEL_LENGTH]
 
     with open("elastic_result.md", "w") as f:
         print(context, file=f)
@@ -159,12 +137,13 @@ def call_llm(state: AgentState) -> AgentState:
         messages = [m for m in state["messages"]if not isinstance(m, ToolMessage)]
     else:
         messages = list(state['messages'])
-    messages = [SystemMessage(content=fast_answer_system_prompt)] + messages
+    sys_prompt = fast_answer_system_prompt.format(today=get_today_str())
+    messages = [SystemMessage(content=sys_prompt)] + messages
     message = llm.invoke(messages)
 
-    # # for Jour fix
-    # with open(f"JF_deep_research/{FILENAME}.md", "w") as f:
-    #     f.write(strip_thinking_tokens(message.content) + "\n")
+    # for Jour fix
+    with open(f"JF_deep_research/{FILENAME}.md", "w") as f:
+        f.write(strip_thinking_tokens(message.content) + "\n")
 
     return {'messages': [message]}
 
@@ -209,52 +188,19 @@ graph.set_entry_point("llm")
 app = graph.compile()
 
 QUESTIONS = [
-# "1. Studienangebot und Orientierung",
-"Welche Bachelorstudiengänge bietet die FAU an?",
-"Gibt es einen Online-Studiengangsfinder oder eine interaktive Suchfunktion?",
-"Welche Studiengänge werden in englischer Sprache angeboten?",
-"Welche Studiengänge sind zulassungsbeschränkt?",
-"Gibt es ein Orientierungsstudium oder eine allgemeine Studienberatung?",
-# "📥 2. Bewerbung und Zulassung",
-"Wie läuft die Online-Bewerbung für ein Bachelorstudium an der FAU ab?",
-"Welche Unterlagen müssen bei einer Bewerbung für ein Masterstudium eingereicht werden?",
-"Welche Bewerbungsfristen gelten für das Sommersemester 2026?",
-"Wie bewerbe ich mich mit einem ausländischen Schulabschluss?",
-"Was ist das „Vorprüfungsdokument“ (VPD) und wo beantrage ich es?",
-# "📚 3. Studienorganisation",
-"Wo finde ich das Vorlesungsverzeichnis der FAU?",
-"Was ist „campo.fau.de“ und wofür wird es genutzt?",
-"Wie kann ich ein Urlaubssemester beantragen?",
-"Wie funktioniert die Belegung von Seminaren und Übungen?",
-"Wo finde ich den akademischen Kalender mit Semesterzeiten und Prüfungsphasen?",
-# "🧩 4. Besondere Studienformen und -bedingungen",
-"Gibt es Teilzeitstudiengänge an der FAU?",
-"Wie unterstützt die FAU Studierende mit Kind?",
-"Welche Nachteilsausgleiche gibt es für Studierende mit Behinderung oder chronischer Erkrankung?",
-"Gibt es ein „Studium Generale“ oder interdisziplinäre Wahlmöglichkeiten?",
-"Welche Möglichkeiten gibt es für ein Doppelstudium oder ein Fachwechsel?",
-# "🌍 5. Internationale Studienoptionen",
-"Welche Austauschprogramme bietet die FAU an?",
-"Welche Partneruniversitäten hat die FAU in Europa?",
-"Wie läuft die Anerkennung von im Ausland erbrachten Studienleistungen?",
-"Gibt es eine zentrale Beratungsstelle für Outgoing-Studierende?",
-"Was müssen internationale Studierende bei der Einschreibung beachten?",
-# "🧑‍🤝‍🧑 6. Unterstützung und Leben im Studium",
-"Wer berät zu psychischen Belastungen oder Studienzweifeln?",
-"Gibt es eine Anlaufstelle für finanzielle Unterstützung, z. B. BAföG oder Notfonds?",
-"Wie finde ich Informationen zu Wohnheimen oder privatem Wohnraum?",
-"Welche Möglichkeiten für studentisches Engagement gibt es an der FAU?",
-"Welche Beratungsstellen oder Programme fördern Diversität und Inklusion?",
+# for more sample questions look into MONICA_QUESTION.TXT
+"Welche Personen gehören zum Kanzleramt der FAU?",
+"Wie sieht der Lageplan des Campus Süd in Erlangen aus?",
 ]
 
 
 FILENAME = ""
 if __name__ == "__main__":
 
-    for q in QUESTIONS:
-        print("========= next seed qeustion =========", q)
+    for i, q in enumerate(QUESTIONS):
+        print(f"========= next seed qeustion ========= {i+1}/{len(QUESTIONS)}", q)
         try:
-            FILENAME = "_"+q
+            FILENAME = str(i)+"_"+q
             app.invoke({"messages": [HumanMessage(q)]})
         except Exception as e:
             print("Error - skipped", q)

@@ -37,25 +37,26 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 import datetime
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 load_dotenv()
 
 FAU_CORPUS = dict()
-with open("/home/horatio/projects/corpus/main_corpus_nhr_fau_de_eu.jsonl", "r", encoding="utf-8")as f:
+# with open("/home/horatio/projects/corpus/main_corpus_nhr_fau_de_eu.jsonl", "r", encoding="utf-8")as f:
+with open("/home/horatio/projects/corpus/crawl4ai_corpus.jsonl", "r", encoding="utf-8")as f:
     for doc in f:
         doc = json.loads(doc)
-        metadata = doc.get("metadata")
-        if metadata:
-            url = metadata["url"]
-        else:
-            url = doc["url"]
+        url = doc.get("url")
+        if not url:
+            url = doc["metadata"]["url"]
         if url:
             FAU_CORPUS.update({url: doc})
     print("Corpus loaded")
 
 def get_today_str() -> str:
     """Get current date in a human-readable format."""
-    return datetime.datetime.now().strftime("%a %b %-d, %Y")
+    
+    return datetime.datetime.now(ZoneInfo("Europe/Berlin")).strftime("%a %b %-d, %Y")
 
 
 def get_config_value(value):
@@ -221,10 +222,14 @@ async def tavily_search_async(search_queries, max_results: int = 5, topic: str =
     return search_docs
 
 @traceable
-def es_search(search_queries):
-    """Search local documents using Elasticsearch"""
+def es_search(search_queries) -> list:
+    """
+    Search local documents using Elasticsearch
+    returns the results and the surplus tokens
+    """
     INCLUDE_TOP_N_RESULTS = 10
     MAX_TEXT_LENGTH = 10_000
+    TOTAL_RESULT_BUDGET = 40_000*4  # character count
     search_docs = list()
     visited_urls = set()
     client = Elasticsearch(
@@ -237,9 +242,8 @@ def es_search(search_queries):
         """ send the request """
 
         res = client.search(
-            index="search-test02",
-            explain=True,
-            size=INCLUDE_TOP_N_RESULTS+10,
+            index="search-cai",
+            size=INCLUDE_TOP_N_RESULTS,
             query={
                 "multi_match" : {
                     "query":    query,
@@ -247,6 +251,7 @@ def es_search(search_queries):
                 }
             }
         )
+        print(f"### got {len(res.body["hits"]["hits"])} hits from Elasticsearch")
 
         hits = list()
         for hit in res.body["hits"]["hits"]:
@@ -255,10 +260,10 @@ def es_search(search_queries):
             hits.append({
                 "text": hit["_source"]["text"],
                 "url": hit["_source"]["url"],
-                "title": hit["_source"]["title"] + ";" +  hit["_source"]["description"]
+                "title": hit["_source"].get("title", "") #+ ";" +  hit["_source"].get("description", "")
             })
         
-        # return  [r for r in data["results"] if r["url"] not in visited_urls]
+        
         return hits
     
     for query in search_queries:
@@ -356,20 +361,27 @@ def searxng_search(search_queries):
             if FAU_CORPUS.get(url, None):
                 res["raw_content"] = FAU_CORPUS.get(url)["text"]
                 print("---- CACHE HIT:", url)
+                print("[[LEN]]", url, len(res["raw_content"]))
+
             else:
-                downloaded = trafilatura.fetch_url(url)
-                if downloaded:
-                    print("searxng - downloaded url:", url)
-                    text = trafilatura.extract(
-                        downloaded,
-                        output_format="markdown")
+                try:
+                    downloaded = trafilatura.fetch_url(url)
+                    if downloaded:
+                        print("searxng - downloaded url:", url)
+                        text = trafilatura.extract(
+                            downloaded,
+                            output_format="markdown")
+                        
+                        # add to cache
+                        FAU_CORPUS.update({url: {"text": text}})
+
+                        res["raw_content"] = text
+                        if not text or len(text) > MAX_TEXT_LENGTH:
+                            text = text[:MAX_TEXT_LENGTH] + "... [truncated]" # truncate
+                        print("[[LEN]]", url, len(text))
+                except Error as e:
+                    print("Error downloading url", e, url)
                     
-                    # add to cache
-                    FAU_CORPUS.update({url: {"text": text}})
-                    
-                    res["raw_content"] = text
-                    if not text or len(text) > MAX_TEXT_LENGTH:
-                        text = text[:MAX_TEXT_LENGTH] + "... [truncated]" # truncate
             results.append(res)
             if len(results) >= INCLUDE_TOP_N_RESULTS:
                 break
