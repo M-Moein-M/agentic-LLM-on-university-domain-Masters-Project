@@ -295,10 +295,7 @@ async def es_search(search_queries) -> list:
             "results": results
         })
 
-    # with open("ELASTIC_search.json", "w") as f:
-    #     print(json.dumps(search_docs, indent=4), file=f)
-    #     print("@@@@ SEARCH DOC WRITTEN TO FILE")
-    
+  
     return search_docs
 
 @traceable
@@ -395,10 +392,6 @@ def searxng_search(search_queries):
             "images": [],
             "results": results
         })
-
-    # with open("searxng_search.json", "w") as f:
-    #     print(json.dumps(search_docs, indent=4), file=f)
-    #     print("@@@@SEARCH DOC WRITTEN TO FILE")
     
     return search_docs
 
@@ -1590,5 +1583,6 @@ def strip_thinking_tokens(text: str) -> str:
     while "<think>" in text and "</think>" in text:
         start = text.find("<think>")
         end = text.find("</think>") + len("</think>")
+        thinking_trace = text[start: end]
         text = text[:start] + text[end:]
-    return text
+    return text, thinking_trace

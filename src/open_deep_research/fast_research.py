@@ -1,4 +1,4 @@
-from typing import Annotated, Sequence, TypedDict, List
+from typing import Annotated, Sequence, TypedDict, List, Dict
 from dotenv import load_dotenv  
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -7,8 +7,11 @@ from langgraph.graph.message import add_messages
 from langgraph.graph import StateGraph, END, START
 from langgraph.prebuilt import ToolNode
 from langgraph.graph.message import add_messages
-
+from langchain_core.messages.base import messages_to_dict
+from langchain_core.load.dump import dumpd, dumps
 import asyncio
+import json
+import uuid
 
 import os
 import time
@@ -112,7 +115,6 @@ class AgentState(TypedDict):
     result_file: str
 
 
-
 def should_continue(state: AgentState):
     """Check if the last message contains tool calls."""
     result = state['messages'][-1]
@@ -131,16 +133,16 @@ async def call_llm(state: AgentState) -> AgentState:
         messages = list(state['messages'])
     sys_prompt = fast_answer_system_prompt.format(today=get_today_str())
     messages = [SystemMessage(content=sys_prompt)] + messages
-    print("# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # ")
     message = await llm.ainvoke(messages)
 
     # for Jour fix
     # TODO make this async
-    state["result_file"]
-    with open(f"JF_deep_research/{state["result_file"]}.md", "w") as f:
-        f.write(strip_thinking_tokens(message.content) + "\n")
+    # text, thought = strip_thinking_tokens(message.content)
+    # with open(f"JF_deep_research/{state["result_file"]}.md", "w") as f:
+    #     f.write(text + "\n")
 
-    return {'messages': [message]}
+    state['messages'] = [message]
+    return state
 
 
 # Retriever Agent
@@ -165,19 +167,33 @@ async def take_action(state: AgentState) -> AgentState:
         results.append(ToolMessage(tool_call_id=t['id'], name=t['name'], content=str(result)))
 
     print("Tools Execution Complete. Back to the model!")
-    return {'messages': results}
+    state['messages'] = results
+    return state
+
+async def write_chat(state: AgentState) -> AgentState:
+    """Writes the results of chat into file"""
+    messages = list()
+    for msg in state["messages"]:
+        messages.append(dumpd(msg))
+
+    with open("chat.jsonl", "w", encoding="utf-8") as f:
+        f.write(json.dumps({"id": str(uuid.uuid4()), "messages": messages}, ensure_ascii=False)+"\n")
+
+    return state
 
 
 graph = StateGraph(AgentState)
 graph.add_node("llm", call_llm)
 graph.add_node("retriever_agent", take_action)
+graph.add_node("writer", write_chat)
 
 graph.add_conditional_edges(
     "llm",
     should_continue,
-    {True: "retriever_agent", False: END}
+    {True: "retriever_agent", False: "writer"}
 )
 graph.add_edge("retriever_agent", "llm")
+graph.add_edge("writer", END)
 graph.set_entry_point("llm")
 
 app = graph.compile()
