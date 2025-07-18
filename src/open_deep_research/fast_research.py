@@ -8,6 +8,7 @@ from langgraph.graph import StateGraph, END, START
 from langgraph.prebuilt import ToolNode
 from langgraph.graph.message import add_messages
 
+import asyncio
 
 import os
 import time
@@ -35,17 +36,6 @@ from open_deep_research.state import (
 load_dotenv()
 
 
-class Queries(BaseModel):
-    queries: List[str] = Field(
-        description="List of search queries.",
-    )
-
-
-class AgentState(TypedDict):
-    topic: str
-    queries: Queries
-
-
 llm  = ChatOpenAI(
     base_url=os.getenv("CUSTOM_BASE_URL"),
     api_key=os.getenv("CUSTOM_API_KEY"),
@@ -56,6 +46,7 @@ llm  = ChatOpenAI(
 
 MAX_QUERY_COUNT = int(os.getenv("MAX_QUERY_COUNT"))
 MAX_MODEL_LENGTH = 3*int(0.85*int(os.getenv("MAX_MODEL_TOKENS")))
+MAX_CONCURRENCY = int(os.getenv("MAX_CONCURRENCY"))
 
     
 from dotenv import load_dotenv
@@ -118,7 +109,8 @@ llm = llm.bind_tools(tools)
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
-    time: int
+    result_file: str
+
 
 
 def should_continue(state: AgentState):
@@ -130,7 +122,7 @@ def should_continue(state: AgentState):
 tools_dict = {our_tool.name: our_tool for our_tool in tools} # Creating a dictionary of our tools
 
 # LLM Agent
-def call_llm(state: AgentState) -> AgentState:
+async def call_llm(state: AgentState) -> AgentState:
     """Function to call the LLM with the current state."""
     if isinstance(state["messages"][-1], HumanMessage):
         # clean previous tools
@@ -139,17 +131,20 @@ def call_llm(state: AgentState) -> AgentState:
         messages = list(state['messages'])
     sys_prompt = fast_answer_system_prompt.format(today=get_today_str())
     messages = [SystemMessage(content=sys_prompt)] + messages
-    message = llm.invoke(messages)
+    print("# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # ")
+    message = await llm.ainvoke(messages)
 
     # for Jour fix
-    with open(f"JF_deep_research/{FILENAME}.md", "w") as f:
+    # TODO make this async
+    state["result_file"]
+    with open(f"JF_deep_research/{state["result_file"]}.md", "w") as f:
         f.write(strip_thinking_tokens(message.content) + "\n")
 
     return {'messages': [message]}
 
 
 # Retriever Agent
-def take_action(state: AgentState) -> AgentState:
+async def take_action(state: AgentState) -> AgentState:
     """Execute tool calls from the LLM's response."""
 
     tool_calls = state['messages'][-1].tool_calls
@@ -188,20 +183,30 @@ graph.set_entry_point("llm")
 app = graph.compile()
 
 QUESTIONS = [
-# for more sample questions look into MONICA_QUESTION.TXT
-"Welche Personen gehören zum Kanzleramt der FAU?",
 "Wie sieht der Lageplan des Campus Süd in Erlangen aus?",
+# "How can students propose changes to university policies through student representation at FAU?",
+# "What training or orientation is available for newly elected student representatives at FAU?",
+# "Wo finde ich das Vorlesungsverzeichnis der FAU?",
+# "Was ist „campo.fau.de“ und wofür wird es genutzt?",
 ]
 
 
-FILENAME = ""
-if __name__ == "__main__":
+semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
 
-    for i, q in enumerate(QUESTIONS):
-        print(f"========= next seed qeustion ========= {i+1}/{len(QUESTIONS)}", q)
-        try:
-            FILENAME = str(i)+"_"+q
-            app.invoke({"messages": [HumanMessage(q)]})
-        except Exception as e:
-            print("Error - skipped", q)
-            print(e)
+async def research(task_id, q):
+    async with semaphore:
+        await app.ainvoke({"messages": [HumanMessage(q)], "result_file": str(task_id)+"_"+q})
+
+# FILENAME = ""
+async def main():
+    async with asyncio.TaskGroup() as tg:
+        for i, q in enumerate(QUESTIONS):
+            try:
+                tg.create_task(research(i, q))
+                print("Added task", i)
+            except Exception as e:
+                print("Error - skipped", q)
+                print(e)
+
+if __name__ == "__main__":
+    asyncio.run(main())

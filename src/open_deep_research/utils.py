@@ -17,6 +17,7 @@ from tavily import AsyncTavilyClient
 from duckduckgo_search import DDGS 
 from bs4 import BeautifulSoup
 from markdownify import markdownify
+import aiohttp
 
 from langchain_community.retrievers import ArxivRetriever
 from langchain_community.utilities.pubmed import PubMedAPIWrapper
@@ -222,7 +223,7 @@ async def tavily_search_async(search_queries, max_results: int = 5, topic: str =
     return search_docs
 
 @traceable
-def es_search(search_queries) -> list:
+async def es_search(search_queries) -> list:
     """
     Search local documents using Elasticsearch
     returns the results and the surplus tokens
@@ -294,9 +295,9 @@ def es_search(search_queries) -> list:
             "results": results
         })
 
-    with open("ELASTIC_search.json", "w") as f:
-        print(json.dumps(search_docs, indent=4), file=f)
-        print("@@@@ SEARCH DOC WRITTEN TO FILE")
+    # with open("ELASTIC_search.json", "w") as f:
+    #     print(json.dumps(search_docs, indent=4), file=f)
+    #     print("@@@@ SEARCH DOC WRITTEN TO FILE")
     
     return search_docs
 
@@ -379,7 +380,7 @@ def searxng_search(search_queries):
                         if not text or len(text) > MAX_TEXT_LENGTH:
                             text = text[:MAX_TEXT_LENGTH] + "... [truncated]" # truncate
                         print("[[LEN]]", url, len(text))
-                except Error as e:
+                except Exception as e:
                     print("Error downloading url", e, url)
                     
             results.append(res)
@@ -395,9 +396,9 @@ def searxng_search(search_queries):
             "results": results
         })
 
-    with open("searxng_search.json", "w") as f:
-        print(json.dumps(search_docs, indent=4), file=f)
-        print("@@@@SEARCH DOC WRITTEN TO FILE")
+    # with open("searxng_search.json", "w") as f:
+    #     print(json.dumps(search_docs, indent=4), file=f)
+    #     print("@@@@SEARCH DOC WRITTEN TO FILE")
     
     return search_docs
 
