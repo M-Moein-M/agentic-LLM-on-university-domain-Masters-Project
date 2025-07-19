@@ -351,6 +351,7 @@ def searxng_search(search_queries):
 
         results = list()
         i = 0
+        all_urls = [res["url"] for res in serp]
         for i, res in enumerate(serp):
             url = res["url"]
             if url in visited_urls or url.endswith(".pdf"):
@@ -359,13 +360,11 @@ def searxng_search(search_queries):
             if FAU_CORPUS.get(url, None):
                 res["raw_content"] = FAU_CORPUS.get(url)["text"]
                 print("---- CACHE HIT:", url)
-                print("[[LEN]]", url, len(res["raw_content"]))
 
             else:
                 try:
                     downloaded = trafilatura.fetch_url(url)
                     if downloaded:
-                        print("searxng - downloaded url:", url)
                         text = trafilatura.extract(
                             downloaded,
                             output_format="markdown")
@@ -376,7 +375,6 @@ def searxng_search(search_queries):
                         res["raw_content"] = text
                         if not text or len(text) > MAX_TEXT_LENGTH:
                             text = text[:MAX_TEXT_LENGTH] + "... [truncated]" # truncate
-                        print("[[LEN]]", url, len(text))
                 except Exception as e:
                     print("Error downloading url", e, url)
                     
@@ -393,7 +391,7 @@ def searxng_search(search_queries):
             "results": results
         })
     
-    return search_docs
+    return search_docs, all_urls
 
 @traceable
 async def exa_search(search_queries, max_characters: Optional[int] = None, num_results=5, 
