@@ -1,3 +1,8 @@
+from open_deep_research.utils import (
+    get_today_str,
+)
+
+
 fast_answer_evaluator = """You are an expert in Quality evaluation of a retreival system
 Based on the discussion obove, with having:
 1. A set of **queries** related to FAU (Friedrich-Alexander-Universität Erlangen-Nürnberg) setting.
@@ -48,7 +53,7 @@ When providing answer based on FAU retriever tool:
 - Avoid repeating ovelapping parts. Merge them to increase readability
 - Keep things up to date if possible. Today is {today}.
 
-"""
+""".format(today=get_today_str())
 
 fast_query_writer="""You are performing research to provide material to answer a topic. 
 

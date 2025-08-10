@@ -2,6 +2,7 @@ import json
 import trafilatura
 import os
 import asyncio
+
 import requests
 import random 
 import concurrent
@@ -299,7 +300,7 @@ async def es_search(search_queries) -> list:
     return search_docs
 
 @traceable
-def searxng_search(search_queries):
+async def searxng_search(search_queries) -> (list, set):
     """Search the web using the Perplexity API.
     
     Args:
@@ -326,71 +327,69 @@ def searxng_search(search_queries):
     """
     INCLUDE_TOP_N_RESULTS = 3
     MAX_TEXT_LENGTH = 9_000
-    search_docs = list()
+    search_docs = []
     visited_urls = set()
-    def get_results(query, engine):
-        """ send the request """
+
+    async def get_results(session, query, engine):
+        """Send the request asynchronously."""
         domains_env = os.getenv("SEARXNG_DOMAINS", "fau.eu,fau.de")
         domains = [d.strip() for d in domains_env.split(",")]
-        domains_str = ' OR '.join(["site:"+d for d in domains])
+        domains_str = ' OR '.join([f"site:{d}" for d in domains])
         
         url = f"http://localhost:8080/search?q={query} -filetype:pdf {domains_str}&format=json&engines={engine}"
-        response = requests.request("GET", url)
-        response.raise_for_status()  # Raise exception for bad status codes
-        # Parse the response
-        data = response.json()
-        return  [r for r in data["results"] if r["url"] not in visited_urls]
-    
-    for query in search_queries:
-        print(query)
-        serp = get_results(query, "google")
-        # try with dockdockgo if google fails
-        if len(serp) == 0:
-            print("** using back up search engine")
-            serp = get_results(query, "dockdockgo")
-
-        results = list()
-        i = 0
-        all_urls = [res["url"] for res in serp]
-        for i, res in enumerate(serp):
-            url = res["url"]
-            if url in visited_urls or url.endswith(".pdf"):
-                continue
-            visited_urls.add(url)
-            if FAU_CORPUS.get(url, None):
-                res["raw_content"] = FAU_CORPUS.get(url)["text"]
-                print("---- CACHE HIT:", url)
-
-            else:
-                try:
-                    downloaded = trafilatura.fetch_url(url)
-                    if downloaded:
-                        text = trafilatura.extract(
-                            downloaded,
-                            output_format="markdown")
-                        
-                        # add to cache
-                        FAU_CORPUS.update({url: {"text": text}})
-
-                        res["raw_content"] = text
-                        if not text or len(text) > MAX_TEXT_LENGTH:
-                            text = text[:MAX_TEXT_LENGTH] + "... [truncated]" # truncate
-                except Exception as e:
-                    print("Error downloading url", e, url)
-                    
-            results.append(res)
-            if len(results) >= INCLUDE_TOP_N_RESULTS:
-                break
         
-        # format response to match Tavily structure
-        search_docs.append({
-            "query": query,
-            "follow_up_questions": None,
-            "answer": None,
-            "images": [],
-            "results": results
-        })
-    
+        async with session.get(url) as response:
+            response.raise_for_status()
+            data = await response.json()
+            return [r for r in data["results"] if r["url"] not in visited_urls]
+
+    async with aiohttp.ClientSession() as session:
+        for query in search_queries:
+            print(query)
+            serp = await get_results(session, query, "google")
+            if len(serp) == 0:
+                print("** using back up search engine")
+                serp = await get_results(session, query, "duckduckgo")
+            results = []
+            all_urls = set([res["url"] for res in serp])
+
+            for res in serp:
+                url = res["url"]
+                if url in visited_urls or url.endswith(".pdf"):
+                    continue
+                visited_urls.add(url)
+
+                if FAU_CORPUS.get(url, None):
+                    res["raw_content"] = FAU_CORPUS[url]["text"]
+                    print("---- CACHE HIT:", url)
+                else:
+                    try:
+                        downloaded = await asyncio.to_thread(trafilatura.fetch_url, url)
+                        if downloaded:
+                            text = await asyncio.to_thread(
+                                trafilatura.extract, downloaded, output_format="markdown"
+                            )
+
+                            FAU_CORPUS[url] = {"text": text}
+                            res["raw_content"] = text
+
+                            if text and len(text) > MAX_TEXT_LENGTH:
+                                res["raw_content"] = text[:MAX_TEXT_LENGTH] + "... [truncated]"
+                    except Exception as e:
+                        print("Error downloading url", e, url)
+
+                results.append(res)
+                if len(results) >= INCLUDE_TOP_N_RESULTS:
+                    break
+
+            search_docs.append({
+                "query": query,
+                "follow_up_questions": None,
+                "answer": None,
+                "images": [],
+                "results": results
+            })
+
     return search_docs, all_urls
 
 @traceable
