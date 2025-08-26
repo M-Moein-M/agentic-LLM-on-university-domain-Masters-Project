@@ -116,7 +116,7 @@ llm = llm.bind_tools(tools)
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
-    result_file: str
+    questions_id: str
 
 
 def should_continue(state: AgentState):
@@ -137,12 +137,6 @@ async def call_llm(state: AgentState) -> AgentState:
         messages = list(state['messages'])
     messages = [SystemMessage(content=fast_answer_system_prompt)] + messages
     message = await llm.ainvoke(messages)
-
-    # for Jour fix
-    # TODO make this async
-    # text, thought = strip_thinking_tokens(message.content)
-    # with open(f"JF_deep_research/{state["result_file"]}.md", "w") as f:
-    #     f.write(text + "\n")
 
     state['messages'] = [message]
     return state
@@ -188,12 +182,12 @@ async def flush_chats_to_file() -> None:
         url_pool.clear()
 
 def _write_chats():
-    with open("chat.jsonl", "a", encoding="utf-8") as f:
+    with open("./data/chat.jsonl", "a", encoding="utf-8") as f:
         for chat in dr_chats:
             f.write(json.dumps(chat, ensure_ascii=False) + "\n")
 
 def _write_urls():
-    with open("all_urls.txt", "a", encoding="utf-8") as f:
+    with open("./data/all_urls.txt", "a", encoding="utf-8") as f:
         for url in url_pool:
             print(url, file=f)
 
@@ -205,7 +199,7 @@ async def write_chat(state: AgentState) -> AgentState:
     chat = {"id": str(uuid.uuid4()), "messages": messages}
     dr_chats.append(chat)
     
-    if len(dr_chats) >= 10: # TODO change to higher number like 10
+    if len(dr_chats) >= 5: # TODO change to higher number like 10
         await flush_chats_to_file()
 
     return state
@@ -238,12 +232,12 @@ QUESTIONS = [
 "How does FAU prepare students to work in highly automated industrial environments?",
 "What role does feature engineering play in physiological signal analysis at FAU?",
 "How can international students engage with student representation at FAU?",
-# "What are the implications of bring-your-own-device (BYOD) policies in academic environments?",
-# "What are the current trends in hardware design for high performance computing (HPC)?",
-# "How are innovation and product development taught in the context of industrial engineering at FAU?",
-# "What is the process for switching majors within the Faculty of Engineering at FAU?",
-# "How does the Faculty of Engineering at FAU support start-ups and entrepreneurship?",
-# "How does FAU incorporate global perspectives into its study of Protestant theology?",
+"What are the implications of bring-your-own-device (BYOD) policies in academic environments?",
+"What are the current trends in hardware design for high performance computing (HPC)?",
+"How are innovation and product development taught in the context of industrial engineering at FAU?",
+"What is the process for switching majors within the Faculty of Engineering at FAU?",
+"How does the Faculty of Engineering at FAU support start-ups and entrepreneurship?",
+"How does FAU incorporate global perspectives into its study of Protestant theology?",
 ]
 
 
@@ -251,14 +245,51 @@ semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
 
 async def research(task_id, q):
     async with semaphore:
-        await app.ainvoke({"messages": [HumanMessage(q)], "result_file": str(task_id)+"_"+q})
+        await app.ainvoke({"messages": [HumanMessage(q)], "questions_id": str(task_id)+"_"+q})
 
-# FILENAME = ""
+# load questions that are not present in chat.jsonl
+
+
+def load_unanswered_questions(seed_path="./data/seed_questions.jsonl", chat_path="./data/chat.jsonl"):
+    """Return list of question dicts from seed_questions.jsonl not present in chat.jsonl, with debug info."""
+    answered_ids = set()
+    if os.path.exists(chat_path):
+        with open(chat_path, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    obj = json.loads(line)
+                    answered_ids.add(obj.get("id"))
+                except Exception:
+                    continue
+
+    questions = []
+    total_questions = 0
+    skipped = 0
+    if os.path.exists(seed_path):
+        with open(seed_path, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    obj = json.loads(line)
+                    total_questions += 1
+                    if obj.get("id") not in answered_ids:
+                        questions.append(obj)
+                    else:
+                        skipped += 1
+                except Exception:
+                    continue
+    print(f"[DEBUG] Loaded {total_questions} questions from seed file.")
+    print(f"[DEBUG] Found {len(answered_ids)} answered questions in chat file.")
+    print(f"[DEBUG] Skipped {skipped} already answered questions.")
+    print(f"[DEBUG] {len(questions)} questions will be processed.")
+    return questions
+
+
 async def main():
+    questions_to_answer = load_unanswered_questions()
     async with asyncio.TaskGroup() as tg:
-        for i, q in enumerate(QUESTIONS):
+        for i, q in enumerate(questions_to_answer):
             try:
-                tg.create_task(research(i, q))
+                tg.create_task(research(task_id=q["id"], q=q["question"]))
                 print("Added task", i)
             except Exception as e:
                 print("Error - skipped", q)
