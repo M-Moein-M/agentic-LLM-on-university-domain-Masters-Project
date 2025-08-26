@@ -258,7 +258,7 @@ async def es_search(search_queries) -> list:
     return search_docs
 
 @traceable
-async def searxng_search(search_queries) -> (list, set):
+async def searxng_search(search_queries) -> (list, list):
     """Search the web using the Perplexity API.
     
     Args:
@@ -302,6 +302,7 @@ async def searxng_search(search_queries) -> (list, set):
             return [r for r in data["results"] if r["url"] not in visited_urls]
 
     async with aiohttp.ClientSession() as session:
+        context_urls = set()
         for query in search_queries:
             print(query)
             serp = await get_results(session, query, "google")
@@ -309,13 +310,11 @@ async def searxng_search(search_queries) -> (list, set):
                 print("** using back up search engine")
                 serp = await get_results(session, query, "duckduckgo")
             results = []
-            all_urls = set([res["url"] for res in serp])
 
             for res in serp:
                 url = res["url"]
                 if url in visited_urls or url.endswith(".pdf"):
                     continue
-                visited_urls.add(url)
 
                 if FAU_CORPUS.get(url, None):
                     res["raw_content"] = FAU_CORPUS[url]["text"]
@@ -325,6 +324,7 @@ async def searxng_search(search_queries) -> (list, set):
                         crawl_result = await crawl_url_with_crawl4ai(url)
                         if crawl_result.success:
                             text = crawl_result.markdown.raw_markdown
+                            text = clean_cookie_text(text)
                             FAU_CORPUS[url] = {"text": text}
                             res["raw_content"] = text
                             if text and len(text) > MAX_TEXT_LENGTH:
@@ -333,7 +333,7 @@ async def searxng_search(search_queries) -> (list, set):
                             print("Error crawling url", crawl_result.error_message, url)
                     except Exception as e:
                         print("Error crawling url", e, url)
-
+                visited_urls.add(url)
                 results.append(res)
                 if len(results) >= INCLUDE_TOP_N_RESULTS:
                     break
@@ -346,7 +346,7 @@ async def searxng_search(search_queries) -> (list, set):
                 "results": results
             })
 
-    return search_docs, all_urls
+    return search_docs, list(visited_urls)
 
 
 # ---------------------------------------------------------------------
@@ -462,3 +462,16 @@ async def crawl_url_with_crawl4ai(url):
             excluded_tags=['img', 'nav', 'header', 'footer', 'aside', 'a', 'href']
         )
         return result
+
+
+def clean_cookie_text(md: str) -> str:
+    cookie_text = ""
+    cookie_text_en = "Privacy Settings \nOur website uses cookies and similar technologies."
+    cookie_text_de = "Datenschutzeinstellungen \nUnsere Webseite verwendet Cookies und ähnliche Technologien."
+    if cookie_text_de in md:
+        cookie_text = cookie_text_de
+    elif cookie_text_en in md:
+        cookie_text = cookie_text_en
+    if cookie_text and cookie_text in md:
+        md = "\n".join(md.split(cookie_text)[:-1])
+    return md

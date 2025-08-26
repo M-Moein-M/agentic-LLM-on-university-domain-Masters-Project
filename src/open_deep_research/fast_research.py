@@ -40,9 +40,9 @@ load_dotenv()
 
 
 llm  = ChatOpenAI(
-    base_url=os.getenv("CUSTOM_BASE_URL"),
-    api_key=os.getenv("CUSTOM_API_KEY"),
-    model_name="/anvme/workspace/unrz103h-helma/base_models/full",
+    base_url= os.getenv("CUSTOM_BASE_URL"),
+    api_key= os.getenv("CUSTOM_API_KEY"),
+    model_name= os.getenv("MODEL_NAME"),
     temperature=0.3,
     streaming=True,
 )
@@ -74,7 +74,7 @@ from open_deep_research.prompts import fast_answer_system_prompt
 
 
 @tool
-async def retriever_tool(queries: List[str]) -> str:
+async def retriever_tool(queries: List[str]) -> dict:
     """
     This tool searches and returns the information from the FAU (Friedrich-Alexander-Universität Erlangen-Nürnberg) website
 
@@ -89,8 +89,8 @@ async def retriever_tool(queries: List[str]) -> str:
     queries = queries[: min(len(queries), MAX_QUERY_COUNT)]
 
     global url_pool
-    search_results, all_urls = await searxng_search(queries)
-    url_pool = url_pool.union(all_urls)
+    search_results, context_urls = await searxng_search(queries)
+    url_pool = url_pool.union(context_urls)
     # search_results = es_search(queries)
 
     context = ""
@@ -104,10 +104,7 @@ async def retriever_tool(queries: List[str]) -> str:
         print(f"<<< CUTTING CONTEXT from {len(context)} to {MAX_MODEL_LENGTH} >>>")
         context = context[:MAX_MODEL_LENGTH]
 
-    # with open("elastic_result.md", "w") as f:
-    #     print(context, file=f)
-    #     print("written search result .md file")
-    return context
+    return {"context": context, "context_urls": context_urls}
 
 
 tools = [retriever_tool]
@@ -116,7 +113,8 @@ llm = llm.bind_tools(tools)
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
-    questions_id: str
+    question_id: str
+    context_urls: List[str]  # keep track of which urls were used as the context
 
 
 def should_continue(state: AgentState):
@@ -149,7 +147,6 @@ async def take_action(state: AgentState) -> AgentState:
     tool_calls = state['messages'][-1].tool_calls
     results = []
     for t in tool_calls:
-        print(f"Calling Tool: {t['name']} with query: {t['args'].get('queries', 'No query provided')}")
         
         if not t['name'] in tools_dict: # Checks if a valid tool is present
             print(f"\nTool: {t['name']} does not exist.")
@@ -157,8 +154,7 @@ async def take_action(state: AgentState) -> AgentState:
         
         else:
             result = await tools_dict[t['name']].ainvoke(t['args'])
-            print(f"Result length: {len(str(result))}")
-            
+            state["context_urls"] = result["context_urls"]
 
         # Appends the Tool Message
         results.append(ToolMessage(tool_call_id=t['id'], name=t['name'], content=str(result)))
@@ -196,7 +192,11 @@ async def write_chat(state: AgentState) -> AgentState:
     global dr_chats, url_pool
     
     messages = [dumpd(msg) for msg in state["messages"]]
-    chat = {"id": str(uuid.uuid4()), "messages": messages}
+    chat = {
+        "id": state["question_id"],
+        "messages": messages,
+        "context_urls": state["context_urls"]
+    }
     dr_chats.append(chat)
     
     if len(dr_chats) >= 5: # TODO change to higher number like 10
@@ -245,7 +245,7 @@ semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
 
 async def research(task_id, q):
     async with semaphore:
-        await app.ainvoke({"messages": [HumanMessage(q)], "questions_id": str(task_id)+"_"+q})
+        await app.ainvoke({"messages": [HumanMessage(q)], "question_id": str(task_id)})
 
 # load questions that are not present in chat.jsonl
 
