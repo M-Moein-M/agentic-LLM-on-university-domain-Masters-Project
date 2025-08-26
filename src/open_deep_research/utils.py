@@ -1,5 +1,4 @@
 import json
-import trafilatura
 import os
 import asyncio
 
@@ -35,6 +34,14 @@ from langchain_groq import ChatGroq
 from functools import lru_cache
 from langchain_openai import ChatOpenAI   # pip install langchain-openai
 from pathlib import Path
+from crawl4ai import (
+    AsyncWebCrawler,
+    BrowserConfig,
+    CrawlerRunConfig,
+    DefaultMarkdownGenerator,
+    PruningContentFilter,
+    CrawlResult
+)
 
 
 logger = logging.getLogger(__name__)
@@ -315,19 +322,17 @@ async def searxng_search(search_queries) -> (list, set):
                     print("---- CACHE HIT:", url)
                 else:
                     try:
-                        downloaded = await asyncio.to_thread(trafilatura.fetch_url, url)
-                        if downloaded:
-                            text = await asyncio.to_thread(
-                                trafilatura.extract, downloaded, output_format="markdown"
-                            )
-
+                        crawl_result = await crawl_url_with_crawl4ai(url)
+                        if crawl_result.success:
+                            text = crawl_result.markdown.raw_markdown
                             FAU_CORPUS[url] = {"text": text}
                             res["raw_content"] = text
-
                             if text and len(text) > MAX_TEXT_LENGTH:
                                 res["raw_content"] = text[:MAX_TEXT_LENGTH] + "... [truncated]"
+                        else:
+                            print("Error crawling url", crawl_result.error_message, url)
                     except Exception as e:
-                        print("Error downloading url", e, url)
+                        print("Error crawling url", e, url)
 
                 results.append(res)
                 if len(results) >= INCLUDE_TOP_N_RESULTS:
@@ -439,3 +444,21 @@ def strip_thinking_tokens(text: str) -> str:
         thinking_trace = text[start: end]
         text = text[:start] + text[end:]
     return text, thinking_trace
+
+async def crawl_url_with_crawl4ai(url):
+    browser_config = BrowserConfig(
+        headless=True,
+        verbose=True
+    )
+    async with AsyncWebCrawler(config=browser_config) as crawler:
+        crawler_config = CrawlerRunConfig(
+            markdown_generator=DefaultMarkdownGenerator(
+                content_filter=PruningContentFilter()
+            )
+        )
+        result: CrawlResult = await crawler.arun(
+            url=url,
+            config=crawler_config,
+            excluded_tags=['img', 'nav', 'header', 'footer', 'aside', 'a', 'href']
+        )
+        return result
