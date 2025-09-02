@@ -193,9 +193,9 @@ async def write_chat(state: AgentState) -> AgentState:
     
     messages = [dumpd(msg) for msg in state["messages"]]
     chat = {
-        "id": state["question_id"],
+        "id": state.get("question_id", "PLACEHOLDER_ID"),
         "messages": messages,
-        "context_urls": state["context_urls"]
+        "context_urls": state.get("context_urls", [])
     }
     dr_chats.append(chat)
     
