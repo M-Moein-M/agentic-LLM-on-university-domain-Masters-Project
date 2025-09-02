@@ -1,0 +1,40 @@
+# Core Ray and distributed computing
+ray[default]==2.8.0
+ray[serve]==2.8.0
+
+# VLLM for efficient LLM inference
+vllm==0.2.7
+
+# LangGraph and LangChain
+langgraph==0.0.40
+langchain==0.1.0
+langchain-core==0.1.0
+langchain-community==0.0.10
+
+# PyTorch and ML dependencies
+torch>=2.1.0
+transformers>=4.35.0
+tokenizers>=0.15.0
+accelerate>=0.24.0
+
+# Additional utilities
+numpy>=1.24.0
+pandas>=2.0.0
+pydantic>=2.0.0
+fastapi>=0.104.0
+uvicorn>=0.24.0
+
+# Monitoring and logging
+wandb>=0.16.0
+tensorboard>=2.15.0
+prometheus-client>=0.19.0
+
+# Development and testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
+flake8>=6.0.0
+
+# Optional: For specific model types
+sentencepiece>=0.1.99
+protobuf>=4.25.0
