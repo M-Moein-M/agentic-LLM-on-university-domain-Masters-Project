@@ -1,0 +1,1 @@
+curl --location 'http://localhost:8080/search?q=AI%20program%20coordinator%20for%20master%27s%20students%20contact%20name%20university%20site%3Afau.eu&format=json&engines=google'

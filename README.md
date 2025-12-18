@@ -1,3 +1,81 @@
+# Agentic LLM on University Domain - Master's Project
+
+> **Note:** This project is forked from [langchain-ai/open_deep_research](https://github.com/langchain-ai/open_deep_research). Changes and customizations have been made on top of the original codebase to adapt it for university domain research.
+
+## Project Structure
+
+```
+├── elasticsearch/
+│   ├── elser-model.ipynb    # Notebook for indexing documents and working with Elasticsearch
+│   └── elasticsearch.yml    # Settings used in Apptainer sandbox in HPC environment
+├── searxng/
+│   ├── settings.yml         # Settings for JSON output configuration
+│   └── sample_request.txt   # Sample request for reference
+├── src/
+│   └── open_deep_research/  # Main source code for the research assistant
+│        └── fast_research.py # core logic and graph of the agent
+└── ...
+
+```
+
+### Elasticsearch on HPC (NHR@FAU)
+
+The following commands plus this ChatGPT chat helps you to setup Elasticsearch on hpc environment using Apptainer.
+Adjust the settings in elasticsearch sandbox as the sample settings in ./elasticsearch/ folder in the repo
+
+Follow the chat to create a sandbox.
+https://chatgpt.com/s/t_686a30364e608191b4fe1d5f3395f8ec
+
+
+• Update the value of cluster-nodes and set it to the current node's hostname (to set as the master cluster) /usr/share/elasticsearch/config/elasticsearch.yml
+
+• Updated /usr/share/elasticsearch/config/elasticsearch.yml file and added node.store.allow_mmap: false to it
+
+• Check the health: curl https://localhost:9200/_cluster/health?pretty  (and with certificate (not important for test and dev) use ```curl --cacert http_ca.crt -u elastic:rgQS9+h3Kk-5fj5-Ttty https://localhost:9200/_cluster/health?pretty```)
+
+Run the following commands to start an instance of Elasticsearch
+```bash
+apptainer exec --writable --env TINI_SUBREAPER=1 --bind "$(pwd)/services/esdata:/usr/share/elasticsearch/data" services/elasticsearch_sandbox/ /usr/local/bin/docker-entrypoint.sh &> elasticsearch.log &
+```
+
+### SearXNG on HPC (NHR@FAU)
+
+```bash
+apptainer build --sandbox searxng/ docker://searxng/searxng:latest
+chmod -R u+rwX searxng/
+
+cp settings.yml searxng/etc/searxng/
+
+# -------------------- Get access to sandbox
+apptainer shell --writable  --cleanenv searxng/  # with this you get access to the sandbox (you can change inside)
+SITE=$(/usr/local/searxng/.venv/bin/python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])") # inside the sandbox
+echo "/usr/local/searxng" > "$SITE/searxng_local.pth" # inside the sandbox
+/usr/local/searxng/.venv/bin/python -c "import searx, sys; print('OK:', searx.__file__)" # inside the sandbox
+# -------------------- Leave sandbox
+
+apptainer run searxng/
+
+curl --location '10.28.53.145:8080/search?q=AI&format=json&engines=brave'  # search searxng
+```
+
+### Crawl4ai on HPC (NHR@FAU)
+
+To run a crawl4ai server on HPC you first have to create your own server app and move it inside your sandbox and run it there. You might ask why can't I run it myself? The answer is in HPC environment, you run into problem with Playwright packages that crawl4ai uses. So best option (at leas the one I know) is to run your server withing an apptainer sandbox which is built based on playwright docker image.
+
+To get a sample server of crawl4ai check https://github.com/M-Moein-M/yt-docker-scraper
+
+First create a sandbox based on playwright docker image
+
+```bash
+
+apptainer shell --writable --fakeroot playwright-new/   # gets root previledges
+apt update  # so apt is able to locate the packages
+apt install python3-pip
+apptainer exec playwright-new/ bash -c "source /home/.../env/bin/activate && uvicorn server:app --host 0.0.0.0 --port 11001 " &
+
+```
+---
+
 # Open Deep Research
 
 Open Deep Research is an experimental, fully open-source research assistant that automates deep research and produces comprehensive reports on any topic. It features two implementations - a [workflow](https://langchain-ai.github.io/langgraph/tutorials/workflows/) and a multi-agent architecture - each with distinct advantages. You can customize the entire research and writing process with specific models, prompts, report structure, and search tools.
